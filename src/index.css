@@ -1,0 +1,7 @@
+/* Base reset — theme in maritime.css */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
