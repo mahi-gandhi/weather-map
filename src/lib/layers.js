@@ -9,7 +9,7 @@ import { WINDY_PHYSICAL_STOPS } from './windColorRamp.js'
  * @property {string} icon
  * @property {string} unit
  * @property {LayerType} type
- * @property {'marine' | 'forecast'} api
+ * @property {'marine' | 'forecast' | 'static'} api
  * @property {string[]} hourlyParams
  * @property {boolean} [physicalRamp]
  * @property {number} [minVisible]
@@ -26,14 +26,19 @@ export const LAYERS = {
     icon: '🌊',
     unit: 'm',
     type: 'scalar',
-    api: 'marine',
-    hourlyParams: ['significant_wave_height'],
+    api: 'static',
+    hourlyParams: [],
     physicalRamp: true,
-    minVisible: 0.1,
+    minVisible: 0,
     physicalStops: [
-      { value: 0, rgba: [0, 0, 0, 0] },
-      { value: 1, rgba: [0x3b, 0x8b, 0xd4, 200] },
-      { value: 4, rgba: [0xe2, 0x4b, 0x4a, 230] },
+      { value: 0.5, rgba: [0, 80, 200, 180] },
+      { value: 1.0, rgba: [0, 140, 255, 190] },
+      { value: 1.5, rgba: [0, 200, 255, 195] },
+      { value: 2.0, rgba: [0, 255, 200, 200] },
+      { value: 3.0, rgba: [100, 255, 100, 205] },
+      { value: 4.0, rgba: [255, 255, 0, 210] },
+      { value: 5.0, rgba: [255, 150, 0, 215] },
+      { value: 6.0, rgba: [255, 50, 0, 220] },
     ],
   },
   wind: {

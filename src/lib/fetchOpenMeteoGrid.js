@@ -1,11 +1,12 @@
 import { LAYERS } from './layers.js'
 import { parseOpenMeteoEntries } from './parseOpenMeteoResponse.js'
 import { OPEN_METEO_FORECAST, OPEN_METEO_MARINE } from './apiBase.js'
+import { loadWaveFile } from './waveStaticGrid.js'
 
 const MARINE_URL = OPEN_METEO_MARINE
 const FORECAST_URL = OPEN_METEO_FORECAST
 
-const MARINE_LAYERS = new Set(['wave_height', 'ocean_current'])
+const MARINE_LAYERS = new Set(['ocean_current'])
 
 /** Open-Meteo multi-location GET — stay under URL limits. */
 const FORECAST_BATCH_SIZE = 80
@@ -30,34 +31,17 @@ export function isMarineLayer(layerId) {
  * @param {number} forecastDays
  */
 function buildMarinePointUrl(layerId, lat, lon, forecastDays) {
+  if (layerId === 'wave_height') {
+    throw new Error('wave_height must use loadWaveFile() — no marine API')
+  }
+
   const time = `forecast_days=${forecastDays}&timezone=UTC`
 
-  if (layerId === 'wave_height') {
-    return `${MARINE_URL}?latitude=${lat}&longitude=${lon}&hourly=significant_wave_height&${time}`
-  }
   if (layerId === 'ocean_current') {
     return `${MARINE_URL}?latitude=${lat}&longitude=${lon}&hourly=ocean_current_velocity,ocean_current_direction&${time}`
   }
 
   throw new Error(`Not a marine layer: ${layerId}`)
-}
-
-/**
- * @param {number} lat
- * @param {number} lon
- * @param {number} forecastDays
- * @returns {Promise<object | null>}
- */
-async function fetchWaveHeightPoint(lat, lon, forecastDays) {
-  const url = buildMarinePointUrl('wave_height', lat, lon, forecastDays)
-  const res = await fetch(url).catch(() => null)
-  if (!res || !res.ok) return null
-
-  try {
-    return await res.json()
-  } catch {
-    return null
-  }
 }
 
 /**
@@ -68,6 +52,8 @@ async function fetchWaveHeightPoint(lat, lon, forecastDays) {
  */
 async function fetchMarinePoint(layerId, lat, lon, forecastDays) {
   const url = buildMarinePointUrl(layerId, lat, lon, forecastDays)
+  console.log('[wave] called from:', new Error().stack)
+  console.log('[wave] marine API fetch', { layerId, lat, lon, url })
   const res = await fetch(url)
   if (!res.ok) {
     const text = await res.text()
@@ -76,24 +62,6 @@ async function fetchMarinePoint(layerId, lat, lon, forecastDays) {
     )
   }
   return res.json()
-}
-
-/**
- * @param {{ lat: number, lon: number, row: number, col: number }[]} points
- * @param {number} forecastDays
- * @returns {Promise<(object | null)[]>}
- */
-async function fetchWaveHeightGridEntries(points, forecastDays) {
-  const results = await Promise.all(
-    points.map(({ lat, lon }) => fetchWaveHeightPoint(lat, lon, forecastDays)),
-  )
-
-  const validResults = results.filter((r) => r !== null)
-  if (validResults.length === 0) {
-    return points.map(() => null)
-  }
-
-  return results
 }
 
 /**
@@ -193,16 +161,20 @@ async function fetchBatchedForecastGridEntries(
  * @returns {Promise<(object | null)[] | object[]>}
  */
 export async function fetchOpenMeteoGridEntries(layerId, points, forecastDays = 1) {
+  console.log('[wave] fetchOpenMeteoGridEntries called', layerId, 'points:', points?.length)
+  // Never call marine API for waves — static JSON only
+  if (layerId === 'wave_height') {
+    console.log('[wave] early exit hit (fetchOpenMeteoGridEntries)')
+    await loadWaveFile()
+    return []
+  }
+
   if (!LAYERS[layerId]) {
     throw new Error(`Unknown layer: ${layerId}`)
   }
 
   if (layerId === 'temperature' || layerId === 'precipitation' || layerId === 'wind') {
     return fetchBatchedForecastGridEntries(layerId, points, forecastDays)
-  }
-
-  if (layerId === 'wave_height') {
-    return fetchWaveHeightGridEntries(points, forecastDays)
   }
 
   if (layerId === 'ocean_current') {

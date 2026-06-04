@@ -8,13 +8,13 @@ import {
 } from './sampleGrid.js'
 import {
   interpolateScalarGrid,
-  interpolateScalarGridSparse,
   interpolateVectorGrid,
 } from './interpolateGrid.js'
 import { kmhToKnots, speedDirToUV } from './windToUV.js'
 import { fetchOpenMeteoGridEntries } from './fetchOpenMeteoGrid.js'
 import { getLayerFetchBounds } from './boundsPad.js'
 import { logTemperatureBoundsDebug } from './temperatureCanvasSync.js'
+import { loadWaveFile } from './waveStaticGrid.js'
 
 function hourlyAt(entry, key, hourIndex, { missing = 0 } = {}) {
   if (!entry) return missing
@@ -34,6 +34,17 @@ function firstValidEntry(entries) {
  * @returns {Promise<{ header: object, times: string[], gridsByHour: Array }>}
  */
 export async function fetchOpenMeteoTimeSeries(bounds, layerId) {
+  // Exit before any marine API call
+  if (layerId === 'wave_height') {
+    console.log('[wave] early exit hit')
+    const grid = await loadWaveFile()
+    return {
+      header: grid.header,
+      times: ['static'],
+      gridsByHour: [[grid]],
+    }
+  }
+
   const layer = LAYERS[layerId]
   const fetchBounds = getLayerFetchBounds(layerId, bounds)
   const sampleSize = getSampleSizeForLayer(layerId)
@@ -54,6 +65,7 @@ export async function fetchOpenMeteoTimeSeries(bounds, layerId) {
     console.log('[temp] starting time-series grid fetch, points:', points.length)
   }
   try {
+    console.log('[wave] openMeteoTimeSeries calling fetchOpenMeteoGridEntries', layerId)
     entries = await fetchOpenMeteoGridEntries(layerId, points, 10)
     if (layerId === 'temperature') {
       console.log('[temp] time-series grid complete, entries:', entries?.length)
@@ -66,14 +78,8 @@ export async function fetchOpenMeteoTimeSeries(bounds, layerId) {
   }
   const validResults = entries.filter((r) => r != null)
 
-  if (layerId === 'wave_height' && validResults.length === 0) {
-    console.warn('[fetch] wave_height time series: no valid marine points')
-    return { header, times: [], gridsByHour: [] }
-  }
-
   const times = firstValidEntry(entries)?.hourly?.time ?? []
   const numHours = times.length
-  const sparseScalar = layerId === 'wave_height'
 
   const gridsByHour = []
 
@@ -119,10 +125,7 @@ export async function fetchOpenMeteoTimeSeries(bounds, layerId) {
         { header, data: speed },
       ])
     } else {
-      const samples = createSampleMatrix(
-        sampleSize,
-        sparseScalar ? NaN : 0,
-      )
+      const samples = createSampleMatrix(sampleSize, 0)
       points.forEach((point, i) => {
         const entry = entries[i]
         const { row, col } = point
@@ -130,11 +133,7 @@ export async function fetchOpenMeteoTimeSeries(bounds, layerId) {
           samples[row][col] = NaN
           return
         }
-        if (layerId === 'wave_height') {
-          samples[row][col] = hourlyAt(entry, 'significant_wave_height', h, {
-            missing: NaN,
-          })
-        } else if (layerId === 'precipitation') {
+        if (layerId === 'precipitation') {
           samples[row][col] = hourlyAt(entry, 'precipitation', h)
         } else if (layerId === 'temperature') {
           samples[row][col] = hourlyAt(entry, 'temperature_2m', h, {
@@ -142,9 +141,7 @@ export async function fetchOpenMeteoTimeSeries(bounds, layerId) {
           })
         }
       })
-      const data = sparseScalar
-        ? interpolateScalarGridSparse(samples, header, sampleSize)
-        : interpolateScalarGrid(samples, header, sampleSize)
+      const data = interpolateScalarGrid(samples, header, sampleSize)
 
       if (layerId === 'temperature') {
         const validPoints = entries.filter((e) => e != null).length

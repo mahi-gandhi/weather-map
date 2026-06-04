@@ -4,6 +4,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '../styles/maritime.css'
 import { fetchLayerGrid } from '../lib/fetchOpenMeteo.js'
+import { fetchWaveLocal } from '../lib/fetchWaveLocal'
 import WeatherOverlay from './WeatherOverlay'
 import WindOverlay from './WindOverlay'
 import CurrentArrows from './CurrentArrows'
@@ -40,7 +41,12 @@ const TILE_LAYER_OPTS = {
 }
 
 const SERIES_LAYERS = new Set([
-  'wave_height',
+  'precipitation',
+  'ocean_current',
+  'temperature',
+])
+
+const TIME_SENSITIVE_LAYERS = new Set([
   'precipitation',
   'ocean_current',
   'temperature',
@@ -120,6 +126,36 @@ export default function WeatherMap() {
     async (layerId, bounds, timeIdx, { showSpinner = true } = {}) => {
       if (!bounds) return null
 
+      // Wave height: static JSON only — skip fetchLayerGrid / marine paths entirely
+      if (layerId === 'wave_height') {
+        console.log('[wave] early exit hit (WeatherMap.loadLayer)')
+        if (isFetchingRef.current.wave_height) {
+          console.warn('[WeatherMap] wave_height fetch skipped — already in flight')
+          return null
+        }
+        isFetchingRef.current.wave_height = true
+        if (showSpinner) {
+          setLoading(true)
+          setLoadingLabel('Loading wave data…')
+        }
+        try {
+          console.log('[wave] WeatherMap calling fetchWaveLocal')
+          const waveData = await fetchWaveLocal()
+          const grids = [waveData]
+          setLayerGrids((prev) => ({ ...prev, wave_height: grids }))
+          return grids
+        } catch (err) {
+          console.error('[WeatherMap] failed to load wave_height', err)
+          return null
+        } finally {
+          isFetchingRef.current.wave_height = false
+          if (showSpinner) {
+            setLoading(false)
+            setLoadingLabel('')
+          }
+        }
+      }
+
       const forecastTime = timelineSteps[timeIdx]
       const cache = timeSeriesCacheRef.current
       const box = boundsBoxFromLeaflet(bounds)
@@ -187,14 +223,17 @@ export default function WeatherMap() {
   useEffect(() => {
     if (!boundsBox || !mapBounds) return
 
-    const fetchKey = [
+    const keyParts = [
       activeLayer,
       boundsBox.south,
       boundsBox.north,
       boundsBox.west,
       boundsBox.east,
-      timeIndex,
-    ].join('|')
+    ]
+    if (TIME_SENSITIVE_LAYERS.has(activeLayer)) {
+      keyParts.push(timeIndex)
+    }
+    const fetchKey = keyParts.join('|')
 
     if (fetchKey === fetchKeyRef.current) return
 
@@ -280,8 +319,11 @@ export default function WeatherMap() {
     <div className="maritime-app">
       <div className="maritime-app__map">
         <MapContainer
-          center={[18, 74]}
-          zoom={5}
+          center={[20, 0]}
+          zoom={2}
+          minZoom={2}
+          maxZoom={18}
+          worldCopyJump
           style={{ height: '100%', width: '100%' }}
         >
           <TileLayer

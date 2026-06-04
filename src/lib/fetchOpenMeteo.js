@@ -8,7 +8,6 @@ import {
 } from './sampleGrid.js'
 import {
   interpolateScalarGrid,
-  interpolateScalarGridSparse,
   interpolateVectorGrid,
 } from './interpolateGrid.js'
 import { kmhToKnots, speedDirToUV } from './windToUV.js'
@@ -18,18 +17,16 @@ import {
   selectGridsForTime,
 } from './openMeteoTimeSeries.js'
 import {
-  createEmptyScalarGridData,
   fetchOpenMeteoGridEntries,
 } from './fetchOpenMeteoGrid.js'
 import { getLayerFetchBounds } from './boundsPad.js'
 import { logTemperatureBoundsDebug } from './temperatureCanvasSync.js'
 import { fetchGFSGrid, gfsGridToLayerGrids } from './fetchGFSGrid.js'
+import { loadWaveFile, sampleGlobalWaveAt } from './waveStaticGrid.js'
 
-const MARINE_URL = 'https://marine-api.open-meteo.com/v1/marine'
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast'
 
 const SERIES_LAYERS = new Set([
-  'wave_height',
   'precipitation',
   'ocean_current',
   'temperature',
@@ -42,6 +39,13 @@ const SERIES_LAYERS = new Set([
  * @returns {Promise<Array<{ header: object, data: number[] }>>}
  */
 export async function fetchLayerGrid(layerId, bounds, options = {}) {
+  // Static wave file only — never Open-Meteo marine API
+  if (layerId === 'wave_height') {
+    console.log('[wave] early exit hit (fetchLayerGrid)')
+    const grid = await loadWaveFile()
+    return [grid]
+  }
+
   const { forecastTime, timeSeriesCache } = options
   const layer = LAYERS[layerId]
   if (!layer) throw new Error(`Unknown layer: ${layerId}`)
@@ -112,6 +116,7 @@ export async function fetchLayerGrid(layerId, bounds, options = {}) {
 
   let entries
   try {
+    console.log('[wave] fetchLayerGrid calling fetchOpenMeteoGridEntries', layerId)
     entries = await fetchOpenMeteoGridEntries(layerId, points, 1)
     if (layerId === 'temperature') {
       console.log('[temp] fetch complete, points:', entries?.length)
@@ -126,11 +131,6 @@ export async function fetchLayerGrid(layerId, bounds, options = {}) {
   console.log(
     `[fetch] ${layerId} ${validResults.length}/${points.length} valid sample points`,
   )
-
-  if (layerId === 'wave_height' && validResults.length === 0) {
-    console.warn('[fetch] wave_height: no valid marine points — empty grid')
-    return [{ header, data: createEmptyScalarGridData(header) }]
-  }
 
   if (entries.length !== points.length) {
     console.warn(
@@ -171,7 +171,6 @@ export async function fetchLayerGrid(layerId, bounds, options = {}) {
   }
 
   const samples = createSampleMatrix(sampleSize, NaN)
-  const sparseScalar = layerId === 'wave_height'
 
   points.forEach((point, i) => {
     const entry = entries[i]
@@ -183,15 +182,13 @@ export async function fetchLayerGrid(layerId, bounds, options = {}) {
     samples[row][col] = extractScalar(layerId, entry)
   })
 
-  if (layerId === 'wave_height' || layerId === 'precipitation') {
+  if (layerId === 'precipitation') {
     console.log(`[fetch] ${layerId} ${sampleSize}×${sampleSize} samples:`, samples)
   }
 
-  const data = sparseScalar
-    ? interpolateScalarGridSparse(samples, header, sampleSize)
-    : interpolateScalarGrid(samples, header, sampleSize)
+  const data = interpolateScalarGrid(samples, header, sampleSize)
 
-  if (layerId === 'wave_height' || layerId === 'precipitation') {
+  if (layerId === 'precipitation') {
     logSampleStats(layerId, data)
   }
 
@@ -231,9 +228,7 @@ function logSampleStats(layerId, data) {
   const valid = data.filter((v) => v != null && !Number.isNaN(v))
   const max = valid.length ? Math.max(...valid) : 0
   const min = valid.length ? Math.min(...valid) : 0
-  const ocean = valid.filter((v) =>
-    layerId === 'wave_height' ? v > 0.1 : v > 0.01,
-  ).length
+  const ocean = valid.filter((v) => v > 0.01).length
   console.log(`[fetch] ${layerId} grid range:`, { min, max, oceanCells: ocean })
 }
 
@@ -251,12 +246,9 @@ function extractScalar(layerId, entry) {
   if (!entry) return NaN
   if (entry?.error) {
     console.warn(`[fetch] ${layerId} point error`, entry)
-    return layerId === 'wave_height' ? NaN : 0
+    return 0
   }
 
-  if (layerId === 'wave_height') {
-    return hourlyFirst(entry, 'significant_wave_height') ?? NaN
-  }
   if (layerId === 'precipitation') {
     return hourlyFirst(entry, 'precipitation') ?? 0
   }
@@ -294,15 +286,10 @@ function extractVector(layerId, entry) {
  * @param {number} lat
  * @param {number} lng
  */
-async function fetchMarineWavePoint(lat, lng) {
-  const url =
-    `${MARINE_URL}?latitude=${lat}&longitude=${lng}` +
-    '&hourly=significant_wave_height&forecast_days=1&timezone=UTC'
-  const res = await fetch(url).catch(() => null)
-  if (!res || !res.ok) return null
+async function fetchStaticWavePoint(lat, lng) {
   try {
-    const json = await res.json()
-    return json?.hourly?.significant_wave_height?.[0] ?? null
+    const grid = await loadWaveFile()
+    return sampleGlobalWaveAt(lat, lng, grid.data)
   } catch {
     return null
   }
@@ -316,7 +303,7 @@ export async function fetchPointForecast(lat, lng) {
 
   const [res, waveHeight] = await Promise.all([
     fetch(forecastUrl).catch(() => null),
-    fetchMarineWavePoint(lat, lng),
+    fetchStaticWavePoint(lat, lng),
   ])
 
   if (!res || !res.ok) {
