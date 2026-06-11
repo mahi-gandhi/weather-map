@@ -1,13 +1,13 @@
 /** Windy-style wave height color stops (meters → RGB). */
 export const WAVE_COLOR_STOPS = [
-  { value: 0.3, rgb: [30, 60, 255] },
-  { value: 0.8, rgb: [0, 140, 255] },
-  { value: 1.5, rgb: [0, 210, 255] },
-  { value: 2.5, rgb: [0, 255, 180] },
-  { value: 3.5, rgb: [120, 255, 80] },
-  { value: 4.5, rgb: [255, 230, 0] },
-  { value: 5.5, rgb: [255, 140, 0] },
-  { value: 7.0, rgb: [255, 30, 0] },
+  { value: 0, rgb: [20, 10, 60] },
+  { value: 0.3, rgb: [30, 30, 120] },
+  { value: 1.0, rgb: [20, 80, 180] },
+  { value: 2.0, rgb: [0, 160, 180] },
+  { value: 3.5, rgb: [0, 200, 140] },
+  { value: 5.0, rgb: [80, 180, 80] },
+  { value: 7.0, rgb: [140, 80, 180] },
+  { value: 10.0, rgb: [200, 60, 220] },
 ]
 
 export const WAVE_LUT_SIZE = 1024
@@ -16,10 +16,10 @@ export const WAVE_TRANSPARENT_THRESHOLD = 0.05
 
 /** Particle trail colors (RGBA 0–255). */
 export const WAVE_PARTICLE_COLOR_STOPS = [
-  { value: 0.5, rgba: [30, 100, 255, 120] },
-  { value: 2.0, rgba: [0, 200, 255, 150] },
-  { value: 4.0, rgba: [255, 220, 0, 160] },
-  { value: 6.0, rgba: [255, 60, 0, 170] },
+  { value: 0.5, rgba: [100, 160, 255, 102] },
+  { value: 2.0, rgba: [60, 200, 200, 115] },
+  { value: 4.0, rgba: [80, 200, 120, 92] },
+  { value: 7.0, rgba: [180, 80, 200, 77] },
 ]
 
 function lerp(a, b, t) {
@@ -27,8 +27,12 @@ function lerp(a, b, t) {
 }
 
 function lerpRgbStops(stops, value) {
-  if (value == null || Number.isNaN(value) || value < stops[0].value) {
+  if (value == null || Number.isNaN(value)) {
     return null
+  }
+
+  if (value <= stops[0].value) {
+    return stops[0].rgb
   }
 
   if (value >= stops[stops.length - 1].value) {

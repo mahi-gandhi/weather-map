@@ -101,8 +101,7 @@ export function isOcean(lat, lng, data) {
   const lon = ((lng % 360) + 360) % 360
   const col = Math.floor(lon)
   const row = Math.floor(90 - lat)
-  if (col < 0 || col >= GRID_COLS) return false
-  if (row < 0 || row > 180) return false
+  if (row < 0 || row > 180 || col < 0 || col >= GRID_COLS) return false
   return (data[row * GRID_COLS + col] ?? 0) > 0.05
 }
 

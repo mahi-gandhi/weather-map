@@ -10,13 +10,18 @@ export default function WaveParticleOverlay({ waveData, active = true }) {
   const gridData = useMemo(() => waveData?.data ?? null, [waveData])
 
   useEffect(() => {
-    const pane = map.getPanes().overlayPane
+    const container = map.getContainer()
     const canvas = document.createElement('canvas')
     canvas.className = 'wave-particle-canvas'
     canvas.style.position = 'absolute'
+    canvas.style.top = '0'
+    canvas.style.left = '0'
+    canvas.style.width = '100%'
+    canvas.style.height = '100%'
     canvas.style.pointerEvents = 'none'
-    canvas.style.zIndex = '370'
-    pane.appendChild(canvas)
+    canvas.style.background = 'transparent'
+    canvas.style.zIndex = '450'
+    container.appendChild(canvas)
     canvasRef.current = canvas
 
     return () => {

@@ -10,6 +10,7 @@ import { fetchLayerGrid } from '../lib/fetchOpenMeteo.js'
 import { fetchWaveLocal } from '../lib/fetchWaveLocal'
 import WeatherOverlay from './WeatherOverlay'
 import WaveCanvas from './WaveCanvas'
+import WaveParticleOverlay from './WaveParticleOverlay.jsx'
 import WindOverlay from './WindOverlay'
 import CurrentArrows from './CurrentArrows'
 import LayerSwitcher from './LayerSwitcher'
@@ -359,7 +360,10 @@ export default function WeatherMap() {
 
           {activeLayer === 'wave_height' &&
             layerGrids.wave_height?.[0] && (
-            <WaveCanvas waveData={layerGrids.wave_height[0]} />
+            <>
+              <WaveCanvas waveData={layerGrids.wave_height[0]} />
+              <WaveParticleOverlay waveData={layerGrids.wave_height[0]} />
+            </>
           )}
 
           {activeLayer === 'wind' &&

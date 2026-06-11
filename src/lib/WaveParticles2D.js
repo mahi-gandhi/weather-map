@@ -2,9 +2,11 @@ import { isOcean, sampleGlobalWaveAt } from './waveStaticGrid.js'
 import { sampleWaveParticleRgba } from './waveColorRamp.js'
 import { swellFlowDelta } from './waveSwellDirection.js'
 
-const PARTICLE_COUNT = 2000
-const FADE_ALPHA = 0.05
-const SPEED_FACTOR = 0.015
+const PARTICLE_COUNT = 1200
+const FADE_ALPHA = 0.022
+const SPEED_FACTOR = 0.004
+const TAIL_LENGTH = 240
+const OCEAN_SPAWN_ATTEMPTS = 100
 
 /**
  * Animated wave-direction particles (latitude-based swell flow).
@@ -19,7 +21,7 @@ export function createWaveParticles2D(canvas, { data, map, getSize }) {
   if (!ctx) throw new Error('2D canvas context unavailable')
 
   const particles = Array.from({ length: PARTICLE_COUNT }, () => {
-    const maxAge = 60 + Math.floor(Math.random() * 61)
+    const maxAge = 120 + Math.floor(Math.random() * 121)
     return {
       lat: 0,
       lng: 0,
@@ -33,31 +35,34 @@ export function createWaveParticles2D(canvas, { data, map, getSize }) {
   let rafId = 0
   let running = false
 
-  function randomOceanInBounds(bounds) {
-    for (let i = 0; i < 200; i++) {
-      const lat =
-        bounds.getSouth() +
-        Math.random() * (bounds.getNorth() - bounds.getSouth())
-      const lng =
-        bounds.getWest() +
-        Math.random() * (bounds.getEast() - bounds.getWest())
-      if (isOcean(lat, lng, data)) {
-        return { lat, lng }
+  function randomOceanParticle() {
+    const { width: W, height: H } = getSize()
+    let attempts = 0
+    while (attempts < OCEAN_SPAWN_ATTEMPTS) {
+      const px = Math.random() * W
+      const py = Math.random() * H
+      const ll = map.containerPointToLatLng([px, py])
+      if (isOcean(ll.lat, ll.lng, data)) {
+        return { lat: ll.lat, lng: ll.lng, ok: true }
       }
+      attempts++
     }
-    return null
+    return { ok: false }
   }
 
   function respawn(p) {
-    const pos = randomOceanInBounds(map.getBounds())
-    if (!pos) {
-      p.prevX = 0
-      p.prevY = 0
+    const pos = randomOceanParticle()
+    if (!pos.ok) {
+      p.lat = 0
+      p.lng = 0
+      p.prevX = -10
+      p.prevY = -10
+      p.age = TAIL_LENGTH
       return
     }
     p.lat = pos.lat
     p.lng = pos.lng
-    p.maxAge = 60 + Math.floor(Math.random() * 61)
+    p.maxAge = 120 + Math.floor(Math.random() * 121)
     p.age = 0
     p.prevX = 0
     p.prevY = 0
@@ -79,11 +84,12 @@ export function createWaveParticles2D(canvas, { data, map, getSize }) {
       return
     }
 
+    ctx.globalCompositeOperation = 'destination-out'
     ctx.fillStyle = `rgba(0, 0, 0, ${FADE_ALPHA})`
     ctx.fillRect(0, 0, w, h)
+    ctx.globalCompositeOperation = 'source-over'
 
     const bounds = map.getBounds()
-    const origin = map.containerPointToLayerPoint([0, 0])
 
     for (const p of particles) {
       p.age += 1
@@ -117,18 +123,20 @@ export function createWaveParticles2D(canvas, { data, map, getSize }) {
         continue
       }
 
-      const pt = map.latLngToLayerPoint([p.lat, p.lng])
-      const x = pt.x - origin.x
-      const y = pt.y - origin.y
+      const pt = map.latLngToContainerPoint([p.lat, p.lng])
+      const x = pt.x
+      const y = pt.y
 
       if (x < -20 || x > w + 20 || y < -20 || y > h + 20) {
         respawn(p)
         continue
       }
 
-      if (p.prevX !== 0 || p.prevY !== 0) {
+      const hasTrail = p.prevX !== 0 || p.prevY !== 0
+      if (hasTrail && p.prevX >= 0 && p.prevY >= 0) {
         ctx.strokeStyle = sampleWaveParticleRgba(height)
-        ctx.lineWidth = 1.2
+        ctx.lineWidth = 0.8
+        ctx.lineCap = 'round'
         ctx.beginPath()
         ctx.moveTo(p.prevX, p.prevY)
         ctx.lineTo(x, y)
@@ -153,6 +161,19 @@ export function createWaveParticles2D(canvas, { data, map, getSize }) {
     stop() {
       running = false
       cancelAnimationFrame(rafId)
+    },
+    pauseAndClear() {
+      running = false
+      cancelAnimationFrame(rafId)
+      clearCanvas()
+    },
+    reinitialize() {
+      for (const p of particles) respawn(p)
+      for (const p of particles) {
+        p.prevX = 0
+        p.prevY = 0
+      }
+      clearCanvas()
     },
     resize() {
       clearCanvas()
