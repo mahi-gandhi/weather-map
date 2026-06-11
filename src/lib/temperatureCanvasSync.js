@@ -23,6 +23,33 @@ export function syncWeatherCanvasToMapContainer(canvas, map) {
 }
 
 /**
+ * Size and position a weather canvas inside Leaflet overlayPane (below labels).
+ * @param {HTMLCanvasElement} canvas
+ * @param {import('leaflet').Map} map
+ * @returns {{ width: number, height: number }}
+ */
+export function syncWeatherCanvasToOverlayPane(canvas, map) {
+  const size = map.getSize()
+  const topLeft = map.containerPointToLayerPoint([0, 0])
+
+  canvas.style.position = 'absolute'
+  canvas.style.top = `${-topLeft.y}px`
+  canvas.style.left = `${-topLeft.x}px`
+  canvas.style.width = `${size.x}px`
+  canvas.style.height = `${size.y}px`
+  canvas.style.pointerEvents = 'none'
+  canvas.style.zIndex = '200'
+  canvas.style.background = 'transparent'
+
+  const width = Math.max(1, size.x)
+  const height = Math.max(1, size.y)
+  canvas.width = width
+  canvas.height = height
+
+  return { width, height }
+}
+
+/**
  * @param {import('leaflet').Map} map
  */
 export function getMapVisibleBounds(map) {

@@ -4,7 +4,9 @@ import { useMap } from 'react-leaflet'
 import { LAYERS } from '../lib/layers.js'
 import { buildPhysicalColorLut, valueToLutIndex } from '../lib/colorLut.js'
 import { lookupGridBilinear } from '../lib/lookupGrid.js'
-import { syncWeatherCanvasToMapContainer } from '../lib/temperatureCanvasSync.js'
+import {
+  syncWeatherCanvasToMapContainer,
+} from '../lib/temperatureCanvasSync.js'
 
 const RENDER_SCALE = 1 / 3
 const BLUR_PX = 10
@@ -39,13 +41,12 @@ export default function PrecipitationCanvas({ grids }) {
   }, [grids])
 
   useEffect(() => {
-    const pane = map.getPanes().overlayPane
+    const container = map.getContainer()
     const canvas = document.createElement('canvas')
-    canvas.className = 'precipitation-canvas'
-    canvas.style.position = 'absolute'
-    canvas.style.pointerEvents = 'none'
-    canvas.style.zIndex = '450'
-    pane.appendChild(canvas)
+    canvas.className = 'precipitation-canvas smooth-weather-canvas'
+    canvas.style.zIndex = '650'
+    canvas.style.opacity = '0.8'
+    container.appendChild(canvas)
     canvasRef.current = canvas
 
     return () => {
@@ -229,7 +230,7 @@ export default function PrecipitationCanvas({ grids }) {
         whiteSpace: 'nowrap',
       }}
     >
-      No precipitation in this area
+      No rain in this area
     </div>,
     document.body,
   )

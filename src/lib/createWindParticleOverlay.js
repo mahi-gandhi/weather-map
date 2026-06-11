@@ -1,7 +1,7 @@
-import { createWindParticles } from './createWindParticles.js'
+import { createWindParticles2D } from './WindParticles2D.js'
 
 /**
- * Regl line-trail wind particles (reliable vs raw WebGL points).
+ * Canvas 2D wind particles on Leaflet overlay pane.
  * @param {HTMLCanvasElement} canvas
  * @param {import('leaflet').Map} map
  * @param {object} windGrid — gfsMeta from fetchGFSGrid
@@ -23,20 +23,6 @@ export function createWindParticleOverlay(canvas, map, windGrid) {
     vKmh[i] = (v[i] ?? 0) * 3.6
   }
 
-  function getScreenCorners() {
-    const north = Math.max(header.la1, header.la2)
-    const south = Math.min(header.la1, header.la2)
-    const west = Math.min(header.lo1, header.lo2)
-    const east = Math.max(header.lo1, header.lo2)
-
-    return {
-      nw: map.latLngToContainerPoint([north, west]),
-      ne: map.latLngToContainerPoint([north, east]),
-      sw: map.latLngToContainerPoint([south, west]),
-      se: map.latLngToContainerPoint([south, east]),
-    }
-  }
-
   function getSize() {
     const size = map.getSize()
     return { width: size.x, height: size.y }
@@ -53,11 +39,11 @@ export function createWindParticleOverlay(canvas, map, windGrid) {
     canvas.height = Math.max(1, size.y)
   }
 
-  const particles = createWindParticles(canvas, {
+  const particles = createWindParticles2D(canvas, {
     header: gridHeader,
     u: uKmh,
     v: vKmh,
-    getScreenCorners,
+    map,
     getSize,
   })
 
@@ -73,7 +59,7 @@ export function createWindParticleOverlay(canvas, map, windGrid) {
       map.on('zoom', onMapChange)
       map.on('resize', onMapChange)
       particles.start()
-      console.info('[WindParticles] regl overlay active', windGrid.source)
+      console.info('[WindParticles] Canvas 2D overlay active', windGrid.source)
     },
     resize() {
       syncCanvas()

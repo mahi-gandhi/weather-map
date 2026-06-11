@@ -23,8 +23,7 @@ import { getLayerFetchBounds } from './boundsPad.js'
 import { logTemperatureBoundsDebug } from './temperatureCanvasSync.js'
 import { fetchGFSGrid, gfsGridToLayerGrids } from './fetchGFSGrid.js'
 import { loadWaveFile, sampleGlobalWaveAt } from './waveStaticGrid.js'
-
-const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast'
+import { OPEN_METEO_FORECAST } from './apiBase.js'
 
 const SERIES_LAYERS = new Set([
   'precipitation',
@@ -297,7 +296,7 @@ async function fetchStaticWavePoint(lat, lng) {
 
 export async function fetchPointForecast(lat, lng) {
   const forecastUrl =
-    `${FORECAST_URL}?latitude=${lat}&longitude=${lng}` +
+    `${OPEN_METEO_FORECAST}?latitude=${lat}&longitude=${lng}` +
     '&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,precipitation' +
     '&forecast_days=7&timezone=UTC'
 
@@ -321,21 +320,71 @@ export async function fetchPointForecast(lat, lng) {
   const windDir = json.hourly?.wind_direction_10m ?? []
   const precip = json.hourly?.precipitation ?? []
 
-  const hourly48 = times.slice(0, 48).map((time, i) => ({
+  const hourlyAll = times.map((time, i) => ({
     time,
     label: formatForecastTick(time),
     temperature: temperature[i] ?? null,
     precipitation: precip[i] ?? null,
+    wind: wind[i] ?? null,
+    windDirection: windDir[i] ?? null,
   }))
+
+  const hourly48 = hourlyAll.slice(0, 48)
+
+  const daily = []
+  const dayMap = new Map()
+  for (const row of hourlyAll) {
+    const dayKey = row.time.slice(0, 10)
+    if (!dayMap.has(dayKey)) {
+      dayMap.set(dayKey, {
+        date: dayKey,
+        label: formatForecastDay(row.time),
+        temps: [],
+        precips: [],
+        winds: [],
+      })
+    }
+    const d = dayMap.get(dayKey)
+    if (row.temperature != null) d.temps.push(row.temperature)
+    if (row.precipitation != null) d.precips.push(row.precipitation)
+    if (row.wind != null) d.winds.push(row.wind)
+  }
+  for (const d of dayMap.values()) {
+    daily.push({
+      label: d.label,
+      temperature:
+        d.temps.length > 0
+          ? d.temps.reduce((a, b) => a + b, 0) / d.temps.length
+          : null,
+      precipitation: d.precips.reduce((a, b) => a + b, 0),
+      wind:
+        d.winds.length > 0
+          ? d.winds.reduce((a, b) => a + b, 0) / d.winds.length
+          : null,
+    })
+  }
 
   return {
     hourly: hourly48,
+    hourlyAll,
+    daily: daily.slice(0, 7),
     temperature: temperature[0] ?? null,
     wind: wind[0] ?? null,
     windDirection: windDir[0] ?? null,
     precipitation: precip[0] ?? null,
     waveHeight,
+    isOcean: waveHeight != null && waveHeight > 0.05,
   }
+}
+
+function formatForecastDay(iso) {
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
 }
 
 function formatForecastTick(iso) {

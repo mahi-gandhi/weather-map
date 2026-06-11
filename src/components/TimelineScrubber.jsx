@@ -54,18 +54,15 @@ export default function TimelineScrubber({
   useEffect(() => {
     if (!playing) return
     const id = window.setInterval(() => {
-      onTimeIndexChange((prev) => {
-        const current = typeof prev === 'number' ? prev : timeIndex
-        const next = current + 1
-        if (next >= steps.length - 1) {
-          setPlaying(false)
-          return steps.length - 1
-        }
-        return next
-      })
-    }, 400)
+      const next = timeIndex + 1
+      if (next >= steps.length) {
+        onTimeIndexChange(currentTimeIndex)
+      } else {
+        onTimeIndexChange(next)
+      }
+    }, 1000)
     return () => window.clearInterval(id)
-  }, [playing, onTimeIndexChange, steps.length, timeIndex])
+  }, [playing, onTimeIndexChange, steps.length, timeIndex, currentTimeIndex])
 
   const thumbLeft = steps.length > 1 ? (timeIndex / (steps.length - 1)) * 100 : 0
   const nowLeft =

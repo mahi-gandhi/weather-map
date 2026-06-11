@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MapRefContext } from '../context/MapRefContext.jsx'
+import MapRefBridge from './MapRefBridge.jsx'
+import IsobarOverlay from './IsobarOverlay.jsx'
 import { MapContainer, TileLayer } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -6,6 +9,7 @@ import '../styles/maritime.css'
 import { fetchLayerGrid } from '../lib/fetchOpenMeteo.js'
 import { fetchWaveLocal } from '../lib/fetchWaveLocal'
 import WeatherOverlay from './WeatherOverlay'
+import WaveCanvas from './WaveCanvas'
 import WindOverlay from './WindOverlay'
 import CurrentArrows from './CurrentArrows'
 import LayerSwitcher from './LayerSwitcher'
@@ -17,6 +21,7 @@ import TopBar from './TopBar.jsx'
 import LoadingBar from './LoadingBar.jsx'
 import WindLegend from './WindLegend.jsx'
 import TemperatureLegend from './TemperatureLegend.jsx'
+import WaveHeightLegend from './WaveHeightLegend.jsx'
 import MapTileLoading from './MapTileLoading.jsx'
 import LabelsTileLayer from './LabelsTileLayer.jsx'
 import {
@@ -116,6 +121,7 @@ export default function WeatherMap() {
   const fetchKeyRef = useRef('')
   const isFetchingRef = useRef({})
   const timeSeriesCacheRef = useRef(new Map())
+  const mapRef = useRef(null)
 
   const mapBounds = useMemo(() => {
     if (!boundsBox) return null
@@ -306,6 +312,7 @@ export default function WeatherMap() {
   const activeGrids = layerGrids[activeLayer]
   const showHeatmap =
     activeLayer !== 'ocean_current' &&
+    activeLayer !== 'wave_height' &&
     !(
       activeLayer === 'wind' &&
       windMode === 'particles' &&
@@ -314,8 +321,11 @@ export default function WeatherMap() {
 
   const showWindLegend = activeLayer === 'wind'
   const showTemperatureLegend = activeLayer === 'temperature'
+  const showWaveLegend = activeLayer === 'wave_height'
+  const waveGridData = layerGrids.wave_height?.[0] ?? null
 
   return (
+    <MapRefContext.Provider value={mapRef}>
     <div className="maritime-app">
       <div className="maritime-app__map">
         <MapContainer
@@ -333,6 +343,9 @@ export default function WeatherMap() {
           />
           <LabelsTileLayer url={TILE_LABELS} {...TILE_LAYER_OPTS} />
 
+          <MapRefBridge mapRef={mapRef} />
+          <IsobarOverlay />
+
           <MapTileLoading onTilesLoadingChange={handleTilesLoadingChange} />
 
           <MapBoundsController
@@ -342,6 +355,11 @@ export default function WeatherMap() {
 
           {showHeatmap && activeGrids && (
             <WeatherOverlay layerId={activeLayer} grids={activeGrids} />
+          )}
+
+          {activeLayer === 'wave_height' &&
+            layerGrids.wave_height?.[0] && (
+            <WaveCanvas waveData={layerGrids.wave_height[0]} />
           )}
 
           {activeLayer === 'wind' &&
@@ -363,6 +381,8 @@ export default function WeatherMap() {
           <ForecastPanel
             position={clickPosition}
             onClose={() => setClickPosition(null)}
+            activeLayer={activeLayer}
+            waveGridData={waveGridData?.data ?? null}
           />
         </MapContainer>
       </div>
@@ -385,7 +405,9 @@ export default function WeatherMap() {
         />
         <WindLegend visible={showWindLegend} />
         <TemperatureLegend visible={showTemperatureLegend} />
+        <WaveHeightLegend visible={showWaveLegend} />
       </div>
     </div>
+    </MapRefContext.Provider>
   )
 }

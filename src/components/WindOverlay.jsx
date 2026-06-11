@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 import { createWindParticleOverlay } from '../lib/createWindParticleOverlay.js'
-import { createWindGLOverlay } from '../lib/createWindGLOverlay.js'
 import { createWindCanvasHeatmap } from '../lib/createWindCanvasHeatmap.js'
 import { getFirstGrid } from '../lib/getFirstGrid.js'
 import { getSpeedData, getVectorData } from '../lib/fetchOpenMeteo.js'
@@ -105,38 +104,19 @@ export default function WindOverlay({
     canvas.classList.remove('smooth-weather-canvas')
 
     if (grids.gfsMeta) {
-      const tryParticles = () => {
-        try {
-          systemRef.current = createWindParticleOverlay(
-            canvas,
-            map,
-            grids.gfsMeta,
-          )
-          systemRef.current.start()
-          onParticlesReadyRef.current?.(true)
-          onCanvasHeatmapRef.current?.(false)
-          console.info(
-            '[WindOverlay] regl particles',
-            grids.dataSource,
-          )
-          return true
-        } catch (err) {
-          console.warn('[WindOverlay] regl particles failed', err)
-          return false
-        }
-      }
-
-      if (!tryParticles()) {
-        try {
-          systemRef.current = createWindGLOverlay(canvas, map, grids.gfsMeta)
-          systemRef.current.start()
-          onParticlesReadyRef.current?.(true)
-          onCanvasHeatmapRef.current?.(false)
-          console.info('[WindOverlay] WindGL fallback', grids.dataSource)
-        } catch (err) {
-          console.warn('[WindOverlay] WindGL failed — canvas fallback', err)
-          startCanvasHeatmap()
-        }
+      try {
+        systemRef.current = createWindParticleOverlay(
+          canvas,
+          map,
+          grids.gfsMeta,
+        )
+        systemRef.current.start()
+        onParticlesReadyRef.current?.(true)
+        onCanvasHeatmapRef.current?.(false)
+        console.info('[WindOverlay] Canvas 2D particles', grids.dataSource)
+      } catch (err) {
+        console.warn('[WindOverlay] particles failed — heatmap fallback', err)
+        startCanvasHeatmap()
       }
     } else {
       startCanvasHeatmap()
