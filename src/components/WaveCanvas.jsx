@@ -64,9 +64,6 @@ export default function WaveCanvas({ waveData }) {
   const canvasRef = useRef(null)
 
   useEffect(() => {
-    console.log('[WaveCanvas] waveData:', waveData)
-    console.log('[WaveCanvas] data length:', waveData?.data?.length)
-
     if (!waveData?.data) return
     const data = waveData.data
 
@@ -93,20 +90,24 @@ export default function WaveCanvas({ waveData }) {
       const ctx = canvas.getContext('2d')
       ctx.clearRect(0, 0, W, H)
 
+      const SCALE = 0.5
+      const renderW = Math.floor(W * SCALE)
+      const renderH = Math.floor(H * SCALE)
+
       const bounds = map.getBounds()
       const westBound = bounds.getWest()
       const eastBound = bounds.getEast()
 
-      // Step 1: color buffer (wave heatmap + blur)
+      // Step 1: color buffer (wave heatmap + blur) at reduced resolution
       const colorBuf = document.createElement('canvas')
-      colorBuf.width = W
-      colorBuf.height = H
+      colorBuf.width = renderW
+      colorBuf.height = renderH
       const colorCtx = colorBuf.getContext('2d')
-      const colorImg = colorCtx.createImageData(W, H)
+      const colorImg = colorCtx.createImageData(renderW, renderH)
 
-      for (let px = 0; px < W; px++) {
-        for (let py = 0; py < H; py++) {
-          const ll = map.containerPointToLatLng(L.point(px, py))
+      for (let px = 0; px < renderW; px++) {
+        for (let py = 0; py < renderH; py++) {
+          const ll = map.containerPointToLatLng(L.point(px / SCALE, py / SCALE))
           const rawLng = ll.lng
 
           let normalizedLng = rawLng
@@ -116,10 +117,11 @@ export default function WaveCanvas({ waveData }) {
           if (normalizedLng > eastBound) continue
 
           const v = sampleWave(ll.lat, normalizedLng, data)
-          if (v < 0.01) continue
-          const [r, g, b] = waveColor(v)
+          if (v <= 0) continue
+          const displayV = Math.max(v, 0.15)
+          const [r, g, b] = waveColor(displayV)
           const alpha = Math.min(240, Math.round(120 + v * 30))
-          const i = (py * W + px) * 4
+          const i = (py * renderW + px) * 4
           colorImg.data[i] = r
           colorImg.data[i + 1] = g
           colorImg.data[i + 2] = b
@@ -129,22 +131,22 @@ export default function WaveCanvas({ waveData }) {
       colorCtx.putImageData(colorImg, 0, 0)
 
       const blurred = document.createElement('canvas')
-      blurred.width = W
-      blurred.height = H
+      blurred.width = renderW
+      blurred.height = renderH
       const blurCtx = blurred.getContext('2d')
       blurCtx.filter = 'blur(6px)'
       blurCtx.drawImage(colorBuf, 0, 0)
 
-      // Step 2: ocean mask (hard clip at coastlines)
+      // Step 2: ocean mask (hard clip at coastlines) at reduced resolution
       const maskBuf = document.createElement('canvas')
-      maskBuf.width = W
-      maskBuf.height = H
+      maskBuf.width = renderW
+      maskBuf.height = renderH
       const maskCtx = maskBuf.getContext('2d')
-      const maskImg = maskCtx.createImageData(W, H)
+      const maskImg = maskCtx.createImageData(renderW, renderH)
 
-      for (let px = 0; px < W; px++) {
-        for (let py = 0; py < H; py++) {
-          const ll = map.containerPointToLatLng(L.point(px, py))
+      for (let px = 0; px < renderW; px++) {
+        for (let py = 0; py < renderH; py++) {
+          const ll = map.containerPointToLatLng(L.point(px / SCALE, py / SCALE))
           const rawLng = ll.lng
 
           let normalizedLng = rawLng
@@ -159,7 +161,7 @@ export default function WaveCanvas({ waveData }) {
           const row = Math.floor(90 - lat)
           if (row < 0 || row > 180 || col < 0 || col >= 360) continue
           if (data[row * 360 + col] <= 0.05) continue
-          const i = (py * W + px) * 4
+          const i = (py * renderW + px) * 4
           maskImg.data[i] = 255
           maskImg.data[i + 1] = 255
           maskImg.data[i + 2] = 255
@@ -169,31 +171,37 @@ export default function WaveCanvas({ waveData }) {
       maskCtx.putImageData(maskImg, 0, 0)
 
       const finalMask = document.createElement('canvas')
-      finalMask.width = W
-      finalMask.height = H
+      finalMask.width = renderW
+      finalMask.height = renderH
       const finalMaskCtx = finalMask.getContext('2d')
-      finalMaskCtx.filter = 'blur(1px)'
+      finalMaskCtx.filter = 'blur(2px)'
       finalMaskCtx.drawImage(maskBuf, 0, 0)
 
-      // Step 3: clip color to ocean via destination-in
-      ctx.drawImage(blurred, 0, 0)
+      // Step 3: upscale and clip color to ocean via destination-in
+      ctx.imageSmoothingEnabled = true
+      ctx.drawImage(blurred, 0, 0, renderW, renderH, 0, 0, W, H)
       ctx.globalCompositeOperation = 'destination-in'
-      ctx.drawImage(finalMask, 0, 0)
+      ctx.drawImage(finalMask, 0, 0, renderW, renderH, 0, 0, W, H)
       ctx.globalCompositeOperation = 'source-over'
+    }
+
+    function onMoveZoom() {
+      canvas.style.opacity = '0.5'
+    }
+
+    function onMoveZoomEnd() {
+      canvas.style.opacity = '1'
+      draw()
     }
 
     draw()
     map.whenReady(draw)
-    map.on('move', draw)
-    map.on('moveend', draw)
-    map.on('zoom', draw)
-    map.on('zoomend', draw)
+    map.on('move zoom', onMoveZoom)
+    map.on('moveend zoomend', onMoveZoomEnd)
     map.on('resize', draw)
     return () => {
-      map.off('move', draw)
-      map.off('moveend', draw)
-      map.off('zoom', draw)
-      map.off('zoomend', draw)
+      map.off('move zoom', onMoveZoom)
+      map.off('moveend zoomend', onMoveZoomEnd)
       map.off('resize', draw)
       canvas.remove()
     }

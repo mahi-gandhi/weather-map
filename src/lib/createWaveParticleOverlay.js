@@ -41,6 +41,7 @@ export function createWaveParticleOverlay(canvas, map, data) {
 
   const onMoveEnd = () => {
     syncCanvasSize()
+    particles.buildLatLngGrid()
     particles.reinitialize()
     particles.start()
   }
@@ -51,11 +52,13 @@ export function createWaveParticleOverlay(canvas, map, data) {
 
   const onResize = () => {
     syncCanvasSize()
+    particles.buildLatLngGrid()
     particles.reinitialize()
   }
 
   const onZoomEnd = () => {
     syncCanvasSize()
+    particles.buildLatLngGrid()
     particles.reinitialize()
     particles.start()
   }
@@ -63,6 +66,7 @@ export function createWaveParticleOverlay(canvas, map, data) {
   return {
     start() {
       syncCanvasSize()
+      particles.buildLatLngGrid()
       map.on('movestart', onMoveStart)
       map.on('moveend', onMoveEnd)
       map.on('zoomstart', onZoomStart)

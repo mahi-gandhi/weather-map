@@ -788,23 +788,17 @@ body {
 }
 
 .temp-legend__bar {
-  display: flex;
-  flex-direction: column;
   width: 14px;
-  height: 168px;
+  height: 180px;
   border-radius: 4px;
-  overflow: hidden;
-}
-
-.temp-legend__segment {
-  flex: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
 .temp-legend__labels {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 168px;
+  height: 180px;
   font-size: 0.65rem;
   font-weight: 500;
   color: #fff;

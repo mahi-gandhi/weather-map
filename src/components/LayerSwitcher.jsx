@@ -1,6 +1,7 @@
 import '../styles/maritime.css'
 
 const LAYERS = [
+  { id: 'isobars', icon: '〰', label: 'Isobars' },
   { id: 'wave_height', icon: '🌊', label: 'Waves' },
   { id: 'wind', icon: '💨', label: 'Wind' },
   { id: 'precipitation', icon: '🌧', label: 'Rain' },

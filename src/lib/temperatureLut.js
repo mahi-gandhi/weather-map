@@ -1,21 +1,27 @@
 export const TEMPERATURE_LUT_SIZE = 1024
-export const TEMPERATURE_LUT_MIN = -65
+export const TEMPERATURE_LUT_MIN = -30
 export const TEMPERATURE_LUT_MAX = 45
 export const TEMPERATURE_OVERLAY_ALPHA = 210
 
-/** Windy-style 2 m temperature ramp (°C → RGB). */
-export const TEMPERATURE_COLOR_STOPS = [
-  { t: -65, r: 130, g: 22, b: 146 },
-  { t: -40, r: 130, g: 87, b: 219 },
-  { t: -20, r: 32, g: 140, b: 236 },
-  { t: -10, r: 32, g: 196, b: 232 },
-  { t: 0, r: 35, g: 221, b: 221 },
-  { t: 10, r: 194, g: 255, b: 40 },
-  { t: 20, r: 255, g: 240, b: 40 },
-  { t: 25, r: 255, g: 194, b: 40 },
-  { t: 30, r: 252, g: 128, b: 20 },
-  { t: 40, r: 255, g: 60, b: 20 },
+/** Purple/blue (cold) → pink/red (hot), matching wave layer palette. */
+const TEMP_COLOR_STOPS = [
+  [-30, [40, 20, 90]],
+  [-15, [70, 40, 140]],
+  [0, [90, 90, 200]],
+  [10, [80, 140, 220]],
+  [20, [200, 140, 220]],
+  [28, [240, 100, 160]],
+  [35, [240, 60, 100]],
+  [45, [220, 30, 60]],
 ]
+
+/** @deprecated alias — derived from {@link tempColor} stops */
+export const TEMPERATURE_COLOR_STOPS = TEMP_COLOR_STOPS.map(([t, [r, g, b]]) => ({
+  t,
+  r,
+  g,
+  b,
+}))
 
 /** @deprecated alias */
 export const TEMPERATURE_RENDER_STOPS = TEMPERATURE_COLOR_STOPS.map((s) => ({
@@ -25,46 +31,43 @@ export const TEMPERATURE_RENDER_STOPS = TEMPERATURE_COLOR_STOPS.map((s) => ({
 
 let cachedLut1024 = null
 
-function lerp(a, b, t) {
-  return a + (b - a) * t
-}
-
 /**
- * @param {number} tempC
- * @param {{ t: number, r: number, g: number, b: number }[]} stops
- * @returns {[number, number, number, number]}
+ * @param {number} tempC — typically -30 to 45 °C
+ * @returns {[number, number, number]}
  */
-export function sampleTemperatureStops(tempC, stops = TEMPERATURE_COLOR_STOPS) {
-  if (tempC == null || Number.isNaN(tempC)) {
-    return [0, 0, 0, 0]
-  }
+export function tempColor(tempC) {
+  const stops = TEMP_COLOR_STOPS
 
-  if (tempC <= stops[0].t) {
-    const s = stops[0]
-    return [s.r, s.g, s.b, TEMPERATURE_OVERLAY_ALPHA]
-  }
+  if (tempC <= stops[0][0]) return stops[0][1]
+  if (tempC >= stops[stops.length - 1][0]) return stops[stops.length - 1][1]
 
-  const last = stops[stops.length - 1]
-  if (tempC >= last.t) {
-    return [last.r, last.g, last.b, TEMPERATURE_OVERLAY_ALPHA]
-  }
-
-  for (let i = 0; i < stops.length - 1; i++) {
-    const a = stops[i]
-    const b = stops[i + 1]
-    if (tempC <= b.t) {
-      const span = b.t - a.t
-      const t = span === 0 ? 1 : (tempC - a.t) / span
+  for (let i = 1; i < stops.length; i++) {
+    if (tempC <= stops[i][0]) {
+      const t = (tempC - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0])
+      const a = stops[i - 1][1]
+      const b = stops[i][1]
       return [
-        Math.round(lerp(a.r, b.r, t)),
-        Math.round(lerp(a.g, b.g, t)),
-        Math.round(lerp(a.b, b.b, t)),
-        TEMPERATURE_OVERLAY_ALPHA,
+        Math.round(a[0] + (b[0] - a[0]) * t),
+        Math.round(a[1] + (b[1] - a[1]) * t),
+        Math.round(a[2] + (b[2] - a[2]) * t),
       ]
     }
   }
 
-  return [last.r, last.g, last.b, TEMPERATURE_OVERLAY_ALPHA]
+  return stops[stops.length - 1][1]
+}
+
+/**
+ * @param {number} tempC
+ * @returns {[number, number, number, number]}
+ */
+export function sampleTemperatureStops(tempC) {
+  if (tempC == null || Number.isNaN(tempC)) {
+    return [0, 0, 0, 0]
+  }
+
+  const [r, g, b] = tempColor(tempC)
+  return [r, g, b, TEMPERATURE_OVERLAY_ALPHA]
 }
 
 /**
@@ -86,7 +89,7 @@ export function temperatureToLutIndex(
 }
 
 /**
- * Pre-computed 1024-entry RGBA LUT (-40 °C … 50 °C).
+ * Pre-computed 1024-entry RGBA LUT (-30 °C … 45 °C).
  * @returns {{ lut: Float32Array, min: number, max: number, size: number }}
  */
 export function buildTemperatureLut1024() {
@@ -121,10 +124,22 @@ export function buildTemperatureLut1024() {
  * @returns {[number, number, number]}
  */
 export function sampleTemperatureRgb(tempC) {
-  const { lut, min, max, size } = buildTemperatureLut1024()
-  const idx = temperatureToLutIndex(tempC, min, max, size)
-  const o = idx * 4
-  return [lut[o], lut[o + 1], lut[o + 2]]
+  return tempColor(tempC)
+}
+
+/**
+ * CSS linear-gradient for the legend bar (bottom = cold, top = hot).
+ * @returns {string}
+ */
+export function buildTemperatureLegendGradient() {
+  const min = TEMP_COLOR_STOPS[0][0]
+  const max = TEMP_COLOR_STOPS[TEMP_COLOR_STOPS.length - 1][0]
+  const range = max - min
+  const parts = TEMP_COLOR_STOPS.map(([value, rgb]) => {
+    const pct = ((value - min) / range) * 100
+    return `rgb(${rgb[0]},${rgb[1]},${rgb[2]}) ${pct.toFixed(1)}%`
+  })
+  return `linear-gradient(to top, ${parts.join(', ')})`
 }
 
 /**

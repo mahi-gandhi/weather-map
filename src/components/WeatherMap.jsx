@@ -8,6 +8,7 @@ import 'leaflet/dist/leaflet.css'
 import '../styles/maritime.css'
 import { fetchLayerGrid } from '../lib/fetchOpenMeteo.js'
 import { fetchWaveLocal } from '../lib/fetchWaveLocal'
+import { fetchPressureLocal } from '../lib/fetchPressureLocal'
 import WeatherOverlay from './WeatherOverlay'
 import WaveCanvas from './WaveCanvas'
 import WaveParticleOverlay from './WaveParticleOverlay.jsx'
@@ -64,6 +65,7 @@ const LAYER_LOAD_LABELS = {
   precipitation: 'rain',
   ocean_current: 'current',
   temperature: 'temperature',
+  isobars: 'pressure',
 }
 
 function roundCoord(value) {
@@ -156,6 +158,33 @@ export default function WeatherMap() {
           return null
         } finally {
           isFetchingRef.current.wave_height = false
+          if (showSpinner) {
+            setLoading(false)
+            setLoadingLabel('')
+          }
+        }
+      }
+
+      if (layerId === 'isobars') {
+        if (isFetchingRef.current.isobars) {
+          console.warn('[WeatherMap] isobars fetch skipped — already in flight')
+          return null
+        }
+        isFetchingRef.current.isobars = true
+        if (showSpinner) {
+          setLoading(true)
+          setLoadingLabel('Loading pressure data…')
+        }
+        try {
+          const pressureData = await fetchPressureLocal()
+          const grids = [pressureData]
+          setLayerGrids((prev) => ({ ...prev, isobars: grids }))
+          return grids
+        } catch (err) {
+          console.error('[WeatherMap] failed to load isobars', err)
+          return null
+        } finally {
+          isFetchingRef.current.isobars = false
           if (showSpinner) {
             setLoading(false)
             setLoadingLabel('')
@@ -314,6 +343,7 @@ export default function WeatherMap() {
   const showHeatmap =
     activeLayer !== 'ocean_current' &&
     activeLayer !== 'wave_height' &&
+    activeLayer !== 'isobars' &&
     !(
       activeLayer === 'wind' &&
       windMode === 'particles' &&
@@ -324,6 +354,7 @@ export default function WeatherMap() {
   const showTemperatureLegend = activeLayer === 'temperature'
   const showWaveLegend = activeLayer === 'wave_height'
   const waveGridData = layerGrids.wave_height?.[0] ?? null
+  const pressureGridData = layerGrids.isobars?.[0] ?? null
 
   return (
     <MapRefContext.Provider value={mapRef}>
@@ -345,7 +376,9 @@ export default function WeatherMap() {
           <LabelsTileLayer url={TILE_LABELS} {...TILE_LAYER_OPTS} />
 
           <MapRefBridge mapRef={mapRef} />
-          <IsobarOverlay />
+          {activeLayer === 'isobars' && pressureGridData && (
+            <IsobarOverlay pressureData={pressureGridData} />
+          )}
 
           <MapTileLoading onTilesLoadingChange={handleTilesLoadingChange} />
 

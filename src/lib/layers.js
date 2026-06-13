@@ -20,6 +20,15 @@ import { WINDY_PHYSICAL_STOPS } from './windColorRamp.js'
 
 /** @type {Record<string, LayerConfig>} */
 export const LAYERS = {
+  isobars: {
+    id: 'isobars',
+    label: 'Isobars',
+    icon: '〰',
+    unit: 'hPa',
+    type: 'scalar',
+    api: 'static',
+    hourlyParams: [],
+  },
   wave_height: {
     id: 'wave_height',
     label: 'Waves',
@@ -108,6 +117,7 @@ export const LAYERS = {
 
 /** Display order for the layer switcher. */
 export const LAYER_ORDER = [
+  'isobars',
   'wave_height',
   'wind',
   'precipitation',

@@ -2,7 +2,8 @@ import { isOcean, sampleGlobalWaveAt } from './waveStaticGrid.js'
 import { sampleWaveParticleRgba } from './waveColorRamp.js'
 import { swellFlowDelta } from './waveSwellDirection.js'
 
-const PARTICLE_COUNT = 1200
+const NUM_PARTICLES = typeof window !== 'undefined' && window.innerWidth < 768 ? 600 : 1200
+const GRID_STEP = 20
 const FADE_ALPHA = 0.022
 const SPEED_FACTOR = 0.004
 const TAIL_LENGTH = 240
@@ -20,7 +21,30 @@ export function createWaveParticles2D(canvas, { data, map, getSize }) {
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('2D canvas context unavailable')
 
-  const particles = Array.from({ length: PARTICLE_COUNT }, () => {
+  let latLngGrid = []
+
+  function buildLatLngGrid() {
+    const { width: W, height: H } = getSize()
+    latLngGrid = []
+    for (let gx = 0; gx <= Math.ceil(W / GRID_STEP); gx++) {
+      latLngGrid[gx] = []
+      for (let gy = 0; gy <= Math.ceil(H / GRID_STEP); gy++) {
+        latLngGrid[gx][gy] = map.containerPointToLatLng([gx * GRID_STEP, gy * GRID_STEP])
+      }
+    }
+  }
+
+  function fastLatLng(px, py) {
+    const gx = Math.round(px / GRID_STEP)
+    const gy = Math.round(py / GRID_STEP)
+    const col = Math.min(Math.max(gx, 0), latLngGrid.length - 1)
+    const row = Math.min(Math.max(gy, 0), latLngGrid[0].length - 1)
+    return latLngGrid[col][row]
+  }
+
+  buildLatLngGrid()
+
+  const particles = Array.from({ length: NUM_PARTICLES }, () => {
     const maxAge = 120 + Math.floor(Math.random() * 121)
     return {
       lat: 0,
@@ -41,7 +65,7 @@ export function createWaveParticles2D(canvas, { data, map, getSize }) {
     while (attempts < OCEAN_SPAWN_ATTEMPTS) {
       const px = Math.random() * W
       const py = Math.random() * H
-      const ll = map.containerPointToLatLng([px, py])
+      const ll = fastLatLng(px, py)
       if (isOcean(ll.lat, ll.lng, data)) {
         return { lat: ll.lat, lng: ll.lng, ok: true }
       }
@@ -188,6 +212,7 @@ export function createWaveParticles2D(canvas, { data, map, getSize }) {
         p.prevY = 0
       }
     },
+    buildLatLngGrid,
     destroy() {
       this.stop()
     },
