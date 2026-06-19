@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { MapRefContext } from '../context/MapRefContext.jsx'
 import MapRefBridge from './MapRefBridge.jsx'
 import { MapContainer, TileLayer } from 'react-leaflet'
@@ -7,6 +14,7 @@ import 'leaflet/dist/leaflet.css'
 import '../styles/maritime.css'
 import { fetchLayerGrid } from '../lib/fetchOpenMeteo.js'
 import { fetchWaveLocal } from '../lib/fetchWaveLocal'
+import { processWaveData } from '../lib/wave-utils.js'
 import WeatherOverlay from './WeatherOverlay'
 import WaveCanvas from './WaveCanvas'
 import WaveParticles from './WaveParticles'
@@ -74,6 +82,11 @@ function leafletBoundsFromBox(box) {
   )
 }
 
+function getFitWorldZoom(containerWidth) {
+  const idealZoom = Math.log2(containerWidth / 256)
+  return Math.max(1, Math.ceil(idealZoom))
+}
+
 export default function WeatherMap() {
   const timelineSteps = useMemo(() => buildTimelineSteps(), [])
   const currentTimeIndex = useMemo(
@@ -93,6 +106,14 @@ export default function WeatherMap() {
   const isFetchingRef = useRef({})
   const timeSeriesCacheRef = useRef(new Map())
   const mapRef = useRef(null)
+  const mapContainerRef = useRef(null)
+  const [initialZoom, setInitialZoom] = useState(null)
+
+  useLayoutEffect(() => {
+    const container = mapContainerRef.current
+    if (!container) return
+    setInitialZoom(getFitWorldZoom(container.offsetWidth))
+  }, [])
 
   const mapBounds = useMemo(() => {
     if (!boundsBox) return null
@@ -116,7 +137,8 @@ export default function WeatherMap() {
         }
         try {
           console.log('[wave] WeatherMap calling fetchWaveLocal')
-          const waveData = await fetchWaveLocal()
+          const rawWaveData = await fetchWaveLocal()
+          const waveData = processWaveData(rawWaveData)
           const grids = [waveData]
           console.log('[wave] layerGrids.wave_height:', grids)
           setLayerGrids((prev) => ({ ...prev, wave_height: grids }))
@@ -286,51 +308,52 @@ export default function WeatherMap() {
   return (
     <MapRefContext.Provider value={mapRef}>
     <div className="maritime-app">
-      <div className="maritime-app__map">
-        <MapContainer
-          center={[20, 0]}
-          zoom={2}
-          minZoom={2}
-          maxZoom={18}
-          worldCopyJump
-          style={{ height: '100%', width: '100%' }}
-        >
-          <TileLayer
-            attribution={TILE_ATTRIBUTION}
-            url={TILE_BASE}
-            {...TILE_LAYER_OPTS}
-          />
-          <LabelsTileLayer url={TILE_LABELS} {...TILE_LAYER_OPTS} />
+      <div className="maritime-app__map" ref={mapContainerRef}>
+        {initialZoom != null && (
+          <MapContainer
+            center={[20, 0]}
+            zoom={initialZoom}
+            maxZoom={18}
+            worldCopyJump={false}
+            style={{ height: '100%', width: '100%' }}
+          >
+            <TileLayer
+              attribution={TILE_ATTRIBUTION}
+              url={TILE_BASE}
+              {...TILE_LAYER_OPTS}
+            />
+            <LabelsTileLayer url={TILE_LABELS} {...TILE_LAYER_OPTS} />
 
-          <MapRefBridge mapRef={mapRef} />
+            <MapRefBridge mapRef={mapRef} />
 
-          <MapTileLoading onTilesLoadingChange={handleTilesLoadingChange} />
+            <MapTileLoading onTilesLoadingChange={handleTilesLoadingChange} />
 
-          <MapBoundsController
-            onBoundsChange={handleBoundsChange}
-            onZoomBucketChange={handleZoomBucketChange}
-          />
+            <MapBoundsController
+              onBoundsChange={handleBoundsChange}
+              onZoomBucketChange={handleZoomBucketChange}
+            />
 
-          {showHeatmap && activeGrids && (
-            <WeatherOverlay layerId={activeLayer} grids={activeGrids} />
-          )}
+            {showHeatmap && activeGrids && (
+              <WeatherOverlay layerId={activeLayer} grids={activeGrids} />
+            )}
 
-          {activeLayer === 'wave_height' && layerGrids.wave_height?.[0] && (
-            <>
-              <WaveCanvas waveData={layerGrids.wave_height[0]} />
-              <WaveParticles waveData={layerGrids.wave_height[0]} />
-            </>
-          )}
+            {activeLayer === 'wave_height' && layerGrids.wave_height?.[0] && (
+              <>
+                <WaveCanvas waveData={layerGrids.wave_height[0]} />
+                <WaveParticles waveData={layerGrids.wave_height[0]} />
+              </>
+            )}
 
-          <MapInteraction onMapClick={setClickPosition} />
+            <MapInteraction onMapClick={setClickPosition} />
 
-          <ForecastPanel
-            position={clickPosition}
-            onClose={() => setClickPosition(null)}
-            activeLayer={activeLayer}
-            waveGridData={waveGridData?.data ?? null}
-          />
-        </MapContainer>
+            <ForecastPanel
+              position={clickPosition}
+              onClose={() => setClickPosition(null)}
+              activeLayer={activeLayer}
+              waveGridData={waveGridData?.data ?? null}
+            />
+          </MapContainer>
+        )}
       </div>
 
       <div className="maritime-app__chrome">
