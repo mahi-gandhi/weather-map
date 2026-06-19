@@ -116,14 +116,7 @@ export const LAYERS = {
 }
 
 /** Display order for the layer switcher. */
-export const LAYER_ORDER = [
-  'isobars',
-  'wave_height',
-  'wind',
-  'precipitation',
-  'ocean_current',
-  'temperature',
-]
+export const LAYER_ORDER = ['wave_height', 'temperature']
 
 export const LAYER_IDS = LAYER_ORDER
 

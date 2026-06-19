@@ -91,11 +91,13 @@ export function sampleWaveRgb(value) {
 
 /**
  * @param {number} value
+ * @param {number} [lifeFade=1] — 0–1 envelope (sin over particle lifetime)
  * @returns {string}
  */
-export function sampleWaveParticleRgba(value) {
+export function sampleWaveParticleRgba(value, lifeFade = 1) {
   const rgba = lerpRgbaStops(WAVE_PARTICLE_COLOR_STOPS, value)
-  return `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3] / 255})`
+  const alpha = (lifeFade * 0.85).toFixed(2)
+  return `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${alpha})`
 }
 
 /**

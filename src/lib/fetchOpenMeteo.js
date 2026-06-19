@@ -2,16 +2,12 @@ import { LAYERS } from './layers.js'
 import {
   buildSamplePoints,
   headerFromBounds,
-  SAMPLE_SIZE,
   getSampleSizeForLayer,
   createSampleMatrix,
 } from './sampleGrid.js'
 import {
   interpolateScalarGrid,
-  interpolateVectorGrid,
 } from './interpolateGrid.js'
-import { kmhToKnots, speedDirToUV } from './windToUV.js'
-import { encodeWindSpeedKmhPng } from './encodeWindPng.js'
 import {
   fetchOpenMeteoTimeSeries,
   selectGridsForTime,
@@ -21,15 +17,10 @@ import {
 } from './fetchOpenMeteoGrid.js'
 import { getLayerFetchBounds } from './boundsPad.js'
 import { logTemperatureBoundsDebug } from './temperatureCanvasSync.js'
-import { fetchGFSGrid, gfsGridToLayerGrids } from './fetchGFSGrid.js'
 import { loadWaveFile, sampleGlobalWaveAt } from './waveStaticGrid.js'
 import { OPEN_METEO_FORECAST } from './apiBase.js'
 
-const SERIES_LAYERS = new Set([
-  'precipitation',
-  'ocean_current',
-  'temperature',
-])
+const SERIES_LAYERS = new Set(['temperature'])
 
 /**
  * @param {string} layerId
@@ -48,15 +39,6 @@ export async function fetchLayerGrid(layerId, bounds, options = {}) {
   const { forecastTime, timeSeriesCache } = options
   const layer = LAYERS[layerId]
   if (!layer) throw new Error(`Unknown layer: ${layerId}`)
-
-  if (layerId === 'wind') {
-    console.log('[fetch] wind GFS / dense grid')
-    const gfs = await fetchGFSGrid(bounds)
-    const grids = gfsGridToLayerGrids(gfs)
-    grids.gfsMeta = gfs
-    grids.dataSource = gfs.source
-    return grids
-  }
 
   if (SERIES_LAYERS.has(layerId) && timeSeriesCache) {
     const cacheKey = boundsCacheKey(layerId, bounds)
@@ -84,9 +66,7 @@ export async function fetchLayerGrid(layerId, bounds, options = {}) {
       timeSeriesCache.set(cacheKey, series)
     }
     if (forecastTime) {
-      const grids = selectGridsForTime(series, forecastTime)
-      if (layerId === 'wind') attachWindPngUrl(grids)
-      return grids
+      return selectGridsForTime(series, forecastTime)
     }
   }
 
@@ -137,38 +117,6 @@ export async function fetchLayerGrid(layerId, bounds, options = {}) {
     )
   }
 
-  if (layer.type === 'vector' || layer.type === 'current') {
-    const uSamples = Array.from({ length: SAMPLE_SIZE }, () =>
-      Array(SAMPLE_SIZE).fill(0),
-    )
-    const vSamples = Array.from({ length: SAMPLE_SIZE }, () =>
-      Array(SAMPLE_SIZE).fill(0),
-    )
-    const speedSamples = Array.from({ length: SAMPLE_SIZE }, () =>
-      Array(SAMPLE_SIZE).fill(0),
-    )
-
-    points.forEach((point, i) => {
-      const entry = entries[i] ?? entries[0]
-      const { row, col } = point
-      const { u, v, speed } = extractVector(layerId, entry)
-      uSamples[row][col] = u
-      vSamples[row][col] = v
-      speedSamples[row][col] = speed
-    })
-
-    const { u, v } = interpolateVectorGrid(uSamples, vSamples, header)
-    const speed = interpolateScalarGrid(speedSamples, header)
-
-    const grids = [
-      { header, data: u },
-      { header, data: v },
-      { header, data: speed },
-    ]
-    if (layerId === 'wind') attachWindPngUrl(grids)
-    return grids
-  }
-
   const samples = createSampleMatrix(sampleSize, NaN)
 
   points.forEach((point, i) => {
@@ -181,15 +129,7 @@ export async function fetchLayerGrid(layerId, bounds, options = {}) {
     samples[row][col] = extractScalar(layerId, entry)
   })
 
-  if (layerId === 'precipitation') {
-    console.log(`[fetch] ${layerId} ${sampleSize}×${sampleSize} samples:`, samples)
-  }
-
   const data = interpolateScalarGrid(samples, header, sampleSize)
-
-  if (layerId === 'precipitation') {
-    logSampleStats(layerId, data)
-  }
 
   if (layerId === 'temperature') {
     const validPoints = validResults.length
@@ -200,19 +140,6 @@ export async function fetchLayerGrid(layerId, bounds, options = {}) {
   return [{ header, data }]
 }
 
-/**
- * @param {Array<{ header: object, data: number[] }>} grids
- */
-function attachWindPngUrl(grids) {
-  const header = grids[0].header
-  const speed =
-    grids[2]?.data ??
-    grids[0].data.map((u, i) => Math.hypot(u, grids[1].data[i]))
-  const { pngUrl } = encodeWindSpeedKmhPng(speed, header)
-  grids.pngUrl = pngUrl
-  return grids
-}
-
 function boundsCacheKey(layerId, bounds) {
   return [
     layerId,
@@ -221,14 +148,6 @@ function boundsCacheKey(layerId, bounds) {
     bounds.getWest().toFixed(2),
     bounds.getEast().toFixed(2),
   ].join('|')
-}
-
-function logSampleStats(layerId, data) {
-  const valid = data.filter((v) => v != null && !Number.isNaN(v))
-  const max = valid.length ? Math.max(...valid) : 0
-  const min = valid.length ? Math.min(...valid) : 0
-  const ocean = valid.filter((v) => v > 0.01).length
-  console.log(`[fetch] ${layerId} grid range:`, { min, max, oceanCells: ocean })
 }
 
 function hourlyFirst(entry, key) {
@@ -248,36 +167,10 @@ function extractScalar(layerId, entry) {
     return 0
   }
 
-  if (layerId === 'precipitation') {
-    return hourlyFirst(entry, 'precipitation') ?? 0
-  }
   if (layerId === 'temperature') {
     return hourlyFirst(entry, 'temperature_2m') ?? NaN
   }
   return 0
-}
-
-function extractVector(layerId, entry) {
-  if (entry?.error) {
-    return { u: 0, v: 0, speed: 0 }
-  }
-
-  if (layerId === 'wind') {
-    const speed = hourlyFirst(entry, 'wind_speed_10m') ?? 0
-    const direction = hourlyFirst(entry, 'wind_direction_10m') ?? 0
-    const { u, v } = speedDirToUV(speed, direction)
-    return { u, v, speed }
-  }
-
-  if (layerId === 'ocean_current') {
-    const speedKmh = hourlyFirst(entry, 'ocean_current_velocity') ?? 0
-    const direction = hourlyFirst(entry, 'ocean_current_direction') ?? 0
-    const speedKn = kmhToKnots(speedKmh)
-    const { u, v } = speedDirToUV(speedKn, direction)
-    return { u, v, speed: speedKn }
-  }
-
-  return { u: 0, v: 0, speed: 0 }
 }
 
 /**

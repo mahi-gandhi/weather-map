@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MapRefContext } from '../context/MapRefContext.jsx'
 import MapRefBridge from './MapRefBridge.jsx'
-import IsobarOverlay from './IsobarOverlay.jsx'
 import { MapContainer, TileLayer } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '../styles/maritime.css'
 import { fetchLayerGrid } from '../lib/fetchOpenMeteo.js'
 import { fetchWaveLocal } from '../lib/fetchWaveLocal'
-import { fetchPressureLocal } from '../lib/fetchPressureLocal'
 import WeatherOverlay from './WeatherOverlay'
 import WaveCanvas from './WaveCanvas'
-import WaveParticleOverlay from './WaveParticleOverlay.jsx'
-import WindOverlay from './WindOverlay'
-import CurrentArrows from './CurrentArrows'
+import WaveParticles from './WaveParticles'
 import LayerSwitcher from './LayerSwitcher'
 import ForecastPanel from './ForecastPanel'
 import MapInteraction from './MapInteraction'
@@ -21,7 +17,6 @@ import MapBoundsController from './MapBoundsController'
 import TimelineScrubber from './TimelineScrubber.jsx'
 import TopBar from './TopBar.jsx'
 import LoadingBar from './LoadingBar.jsx'
-import WindLegend from './WindLegend.jsx'
 import TemperatureLegend from './TemperatureLegend.jsx'
 import WaveHeightLegend from './WaveHeightLegend.jsx'
 import MapTileLoading from './MapTileLoading.jsx'
@@ -31,7 +26,6 @@ import {
   getCurrentTimeIndex,
 } from '../lib/timeline.js'
 import { selectGridsForTime } from '../lib/openMeteoTimeSeries.js'
-import { encodeWindSpeedKmhPng } from '../lib/encodeWindPng.js'
 
 const TILE_BASE =
   'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
@@ -47,25 +41,13 @@ const TILE_LAYER_OPTS = {
   updateWhenZooming: false,
 }
 
-const SERIES_LAYERS = new Set([
-  'precipitation',
-  'ocean_current',
-  'temperature',
-])
+const SERIES_LAYERS = new Set(['temperature'])
 
-const TIME_SENSITIVE_LAYERS = new Set([
-  'precipitation',
-  'ocean_current',
-  'temperature',
-])
+const TIME_SENSITIVE_LAYERS = new Set(['temperature'])
 
 const LAYER_LOAD_LABELS = {
   wave_height: 'wave',
-  wind: 'wind',
-  precipitation: 'rain',
-  ocean_current: 'current',
   temperature: 'temperature',
-  isobars: 'pressure',
 }
 
 function roundCoord(value) {
@@ -92,17 +74,6 @@ function leafletBoundsFromBox(box) {
   )
 }
 
-function attachWindPngIfNeeded(layerId, grids) {
-  if (layerId !== 'wind' || grids.pngUrl) return grids
-  const header = grids[0].header
-  const speed =
-    grids[2]?.data ??
-    grids[0].data.map((u, i) => Math.hypot(u, grids[1].data[i]))
-  const { pngUrl } = encodeWindSpeedKmhPng(speed, header)
-  grids.pngUrl = pngUrl
-  return grids
-}
-
 export default function WeatherMap() {
   const timelineSteps = useMemo(() => buildTimelineSteps(), [])
   const currentTimeIndex = useMemo(
@@ -111,14 +82,11 @@ export default function WeatherMap() {
   )
 
   const [activeLayer, setActiveLayer] = useState('wave_height')
-  const [windMode, setWindMode] = useState('particles')
   const [timeIndex, setTimeIndex] = useState(currentTimeIndex)
   const [layerGrids, setLayerGrids] = useState({})
   const [loading, setLoading] = useState(false)
   const [loadingLabel, setLoadingLabel] = useState('')
   const [clickPosition, setClickPosition] = useState(null)
-  const [windParticlesReady, setWindParticlesReady] = useState(false)
-  const [windCanvasHeatmap, setWindCanvasHeatmap] = useState(false)
   const [tilesLoading, setTilesLoading] = useState(false)
   const [boundsBox, setBoundsBox] = useState(null)
   const fetchKeyRef = useRef('')
@@ -135,7 +103,6 @@ export default function WeatherMap() {
     async (layerId, bounds, timeIdx, { showSpinner = true } = {}) => {
       if (!bounds) return null
 
-      // Wave height: static JSON only — skip fetchLayerGrid / marine paths entirely
       if (layerId === 'wave_height') {
         console.log('[wave] early exit hit (WeatherMap.loadLayer)')
         if (isFetchingRef.current.wave_height) {
@@ -151,6 +118,7 @@ export default function WeatherMap() {
           console.log('[wave] WeatherMap calling fetchWaveLocal')
           const waveData = await fetchWaveLocal()
           const grids = [waveData]
+          console.log('[wave] layerGrids.wave_height:', grids)
           setLayerGrids((prev) => ({ ...prev, wave_height: grids }))
           return grids
         } catch (err) {
@@ -165,47 +133,18 @@ export default function WeatherMap() {
         }
       }
 
-      if (layerId === 'isobars') {
-        if (isFetchingRef.current.isobars) {
-          console.warn('[WeatherMap] isobars fetch skipped — already in flight')
-          return null
-        }
-        isFetchingRef.current.isobars = true
-        if (showSpinner) {
-          setLoading(true)
-          setLoadingLabel('Loading pressure data…')
-        }
-        try {
-          const pressureData = await fetchPressureLocal()
-          const grids = [pressureData]
-          setLayerGrids((prev) => ({ ...prev, isobars: grids }))
-          return grids
-        } catch (err) {
-          console.error('[WeatherMap] failed to load isobars', err)
-          return null
-        } finally {
-          isFetchingRef.current.isobars = false
-          if (showSpinner) {
-            setLoading(false)
-            setLoadingLabel('')
-          }
-        }
-      }
+      if (layerId !== 'temperature') return null
 
       const forecastTime = timelineSteps[timeIdx]
       const cache = timeSeriesCacheRef.current
       const box = boundsBoxFromLeaflet(bounds)
       const cacheKey = boundsBoxKey(layerId, box)
 
-      // Cached time-series: no network, no fetch guard
-      if (SERIES_LAYERS.has(layerId)) {
-        const series = cache.get(cacheKey)
-        if (series) {
-          let grids = selectGridsForTime(series, forecastTime)
-          grids = attachWindPngIfNeeded(layerId, grids)
-          setLayerGrids((prev) => ({ ...prev, [layerId]: grids }))
-          return grids
-        }
+      const series = cache.get(cacheKey)
+      if (series) {
+        const grids = selectGridsForTime(series, forecastTime)
+        setLayerGrids((prev) => ({ ...prev, [layerId]: grids }))
+        return grids
       }
 
       if (isFetchingRef.current[layerId]) {
@@ -222,27 +161,21 @@ export default function WeatherMap() {
       }
 
       try {
-        if (layerId === 'temperature') {
-          console.log('[temp] loadLayer start, bounds:', {
-            north: bounds.getNorth(),
-            south: bounds.getSouth(),
-            east: bounds.getEast(),
-            west: bounds.getWest(),
-          })
-        }
+        console.log('[temp] loadLayer start, bounds:', {
+          north: bounds.getNorth(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          west: bounds.getWest(),
+        })
         const grids = await fetchLayerGrid(layerId, bounds, {
           forecastTime,
           timeSeriesCache: cache,
         })
-        if (layerId === 'temperature') {
-          console.log('[temp] loadLayer complete, grids:', grids?.length ?? 0)
-        }
+        console.log('[temp] loadLayer complete, grids:', grids?.length ?? 0)
         setLayerGrids((prev) => ({ ...prev, [layerId]: grids }))
         return grids
       } catch (err) {
-        if (layerId === 'temperature') {
-          console.error('[temp] fetch error:', err)
-        }
+        console.error('[temp] fetch error:', err)
         console.error(`[WeatherMap] failed to load ${layerId}`, err)
         return null
       } finally {
@@ -323,10 +256,6 @@ export default function WeatherMap() {
 
   const handleLayerChange = useCallback((layerId) => {
     fetchKeyRef.current = ''
-    if (layerId !== 'wind') {
-      setWindParticlesReady(false)
-      setWindCanvasHeatmap(false)
-    }
     setActiveLayer(layerId)
   }, [])
 
@@ -340,21 +269,19 @@ export default function WeatherMap() {
   }, [])
 
   const activeGrids = layerGrids[activeLayer]
-  const showHeatmap =
-    activeLayer !== 'ocean_current' &&
-    activeLayer !== 'wave_height' &&
-    activeLayer !== 'isobars' &&
-    !(
-      activeLayer === 'wind' &&
-      windMode === 'particles' &&
-      (windParticlesReady || windCanvasHeatmap)
-    )
-
-  const showWindLegend = activeLayer === 'wind'
+  const showHeatmap = activeLayer === 'temperature'
   const showTemperatureLegend = activeLayer === 'temperature'
   const showWaveLegend = activeLayer === 'wave_height'
   const waveGridData = layerGrids.wave_height?.[0] ?? null
-  const pressureGridData = layerGrids.isobars?.[0] ?? null
+
+  useEffect(() => {
+    if (activeLayer === 'wave_height' && layerGrids.wave_height?.[0]) {
+      console.log(
+        '[wave] passing to particles:',
+        layerGrids.wave_height?.[0]?.data?.length,
+      )
+    }
+  }, [activeLayer, layerGrids.wave_height])
 
   return (
     <MapRefContext.Provider value={mapRef}>
@@ -376,9 +303,6 @@ export default function WeatherMap() {
           <LabelsTileLayer url={TILE_LABELS} {...TILE_LAYER_OPTS} />
 
           <MapRefBridge mapRef={mapRef} />
-          {activeLayer === 'isobars' && pressureGridData && (
-            <IsobarOverlay pressureData={pressureGridData} />
-          )}
 
           <MapTileLoading onTilesLoadingChange={handleTilesLoadingChange} />
 
@@ -391,26 +315,11 @@ export default function WeatherMap() {
             <WeatherOverlay layerId={activeLayer} grids={activeGrids} />
           )}
 
-          {activeLayer === 'wave_height' &&
-            layerGrids.wave_height?.[0] && (
+          {activeLayer === 'wave_height' && layerGrids.wave_height?.[0] && (
             <>
               <WaveCanvas waveData={layerGrids.wave_height[0]} />
-              <WaveParticleOverlay waveData={layerGrids.wave_height[0]} />
+              <WaveParticles waveData={layerGrids.wave_height[0]} />
             </>
-          )}
-
-          {activeLayer === 'wind' &&
-            windMode === 'particles' &&
-            layerGrids.wind && (
-              <WindOverlay
-                grids={layerGrids.wind}
-                onParticlesReady={setWindParticlesReady}
-                onCanvasHeatmap={setWindCanvasHeatmap}
-              />
-            )}
-
-          {activeLayer === 'ocean_current' && layerGrids.ocean_current && (
-            <CurrentArrows grids={layerGrids.ocean_current} />
           )}
 
           <MapInteraction onMapClick={setClickPosition} />
@@ -430,9 +339,6 @@ export default function WeatherMap() {
         <LayerSwitcher
           activeLayer={activeLayer}
           onLayerChange={handleLayerChange}
-          windMode={windMode}
-          onWindModeChange={setWindMode}
-          windParticlesReady={windParticlesReady}
           tilesLoading={tilesLoading}
         />
         <TimelineScrubber
@@ -440,7 +346,6 @@ export default function WeatherMap() {
           currentTimeIndex={currentTimeIndex}
           onTimeIndexChange={handleTimeIndexChange}
         />
-        <WindLegend visible={showWindLegend} />
         <TemperatureLegend visible={showTemperatureLegend} />
         <WaveHeightLegend visible={showWaveLegend} />
       </div>
