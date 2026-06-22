@@ -12,13 +12,15 @@ export default function WaveCanvas({ waveData }) {
     const landMask = waveData.landMask
 
     const container = map.getContainer()
+    container.style.position = 'relative'
+
     const canvas = document.createElement('canvas')
     canvas.style.position = 'absolute'
     canvas.style.top = '0'
     canvas.style.left = '0'
     canvas.style.pointerEvents = 'none'
     canvas.style.zIndex = '400'
-    map.getPanes().mapPane.appendChild(canvas)
+    container.appendChild(canvas)
     canvasRef.current = canvas
     const ctx = canvas.getContext('2d')
 
@@ -112,11 +114,24 @@ export default function WaveCanvas({ waveData }) {
       ctx.drawImage(composited, 0, 0, rw, rh, 0, 0, W, H)
     }
 
+    function onMoveStart() {
+      ctx.globalCompositeOperation = 'source-over'
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+    }
+
     draw()
-    map.on('moveend zoomend resize', draw)
+    map.on('movestart', onMoveStart)
+    map.on('zoomstart', onMoveStart)
+    map.on('moveend', draw)
+    map.on('zoomend', draw)
+    map.on('resize', draw)
 
     return () => {
-      map.off('moveend zoomend resize', draw)
+      map.off('movestart', onMoveStart)
+      map.off('zoomstart', onMoveStart)
+      map.off('moveend', draw)
+      map.off('zoomend', draw)
+      map.off('resize', draw)
       canvas.remove()
     }
   }, [map, waveData])

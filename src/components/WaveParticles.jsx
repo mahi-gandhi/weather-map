@@ -14,14 +14,17 @@ export default function WaveParticles({ waveData }) {
     let W = container.offsetWidth
     let H = container.offsetHeight
 
+    container.style.position = 'relative'
+
     const canvas = document.createElement('canvas')
     canvas.width = W
     canvas.height = H
-    canvas.style.cssText = `
-      position:absolute;top:0;left:0;
-      pointer-events:none;z-index:450;
-    `
-    map.getPanes().mapPane.appendChild(canvas)
+    canvas.style.position = 'absolute'
+    canvas.style.top = '0'
+    canvas.style.left = '0'
+    canvas.style.pointerEvents = 'none'
+    canvas.style.zIndex = '450'
+    container.appendChild(canvas)
     const ctx = canvas.getContext('2d')
 
     function isOcean(px, py) {
@@ -183,7 +186,8 @@ export default function WaveParticles({ waveData }) {
 
     function onMoveStart() {
       cancelAnimationFrame(rafRef.current)
-      ctx.clearRect(0, 0, W, H)
+      ctx.globalCompositeOperation = 'source-over'
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
     }
     function onMoveEnd() {
       W = container.offsetWidth
@@ -197,6 +201,7 @@ export default function WaveParticles({ waveData }) {
 
     map.on('movestart', onMoveStart)
     map.on('moveend', onMoveEnd)
+    map.on('zoomstart', onMoveStart)
     map.on('zoomend', onMoveEnd)
 
     return () => {
@@ -204,6 +209,7 @@ export default function WaveParticles({ waveData }) {
       canvas.remove()
       map.off('movestart', onMoveStart)
       map.off('moveend', onMoveEnd)
+      map.off('zoomstart', onMoveStart)
       map.off('zoomend', onMoveEnd)
     }
   }, [map, waveData])
