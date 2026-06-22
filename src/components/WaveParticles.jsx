@@ -1,21 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
-import { GRID_COLS } from '../lib/waveStaticGrid.js'
-import { sampleWave, waveColor } from '../lib/wave-utils.js'
-
-const NUM_PARTICLES = 9000
-const MAX_AGE = 55
-const SPEED = 2.2
-const LINE_WIDTH = 2.0
-const FADE = 0.045
-const CELL = 6
 
 export default function WaveParticles({ waveData }) {
   const map = useMap()
   const rafRef = useRef(null)
 
   useEffect(() => {
-    if (!map || !waveData?.data?.length || !waveData?.landMask) return
+    if (!map || !waveData?.data?.length) return
     const data = waveData.data
     const landMask = waveData.landMask
 
@@ -26,131 +17,124 @@ export default function WaveParticles({ waveData }) {
     const canvas = document.createElement('canvas')
     canvas.width = W
     canvas.height = H
-    canvas.style.position = 'absolute'
-    canvas.style.top = '0'
-    canvas.style.left = '0'
-    canvas.style.pointerEvents = 'none'
-    canvas.style.zIndex = '450'
+    canvas.style.cssText = `
+      position:absolute;top:0;left:0;
+      pointer-events:none;z-index:450;
+    `
     map.getPanes().mapPane.appendChild(canvas)
     const ctx = canvas.getContext('2d')
 
-    let heightCells, cellCols, cellRows
-
-    function isOceanCell(row, col) {
-      return landMask[row * GRID_COLS + col] === 0
-    }
-
-    function isOceanAtLatLng(lat, lng) {
-      if (lat > 85 || lat < -85) return false
-      const row = Math.floor(90 - lat)
-      const col = Math.floor(((lng % 360) + 360) % 360)
-      if (row < 0 || row > 180 || col < 0 || col >= GRID_COLS) return false
-      return isOceanCell(row, col)
-    }
-
-    function buildGrids() {
-      cellCols = Math.ceil(W / CELL)
-      cellRows = Math.ceil(H / CELL)
-      heightCells = new Float32Array(cellCols * cellRows)
-
-      const bounds = map.getBounds()
-      const west = bounds.getWest()
-      const east = bounds.getEast()
-
-      for (let r = 0; r < cellRows; r++) {
-        for (let c = 0; c < cellCols; c++) {
-          const px = c * CELL + CELL / 2
-          const py = r * CELL + CELL / 2
-          const ll = map.containerPointToLatLng([px, py])
-
-          let lng = ll.lng
-          while (lng < west) lng += 360
-          while (lng > west + 360) lng -= 360
-          if (lng > east) continue
-          if (!isOceanAtLatLng(ll.lat, lng)) continue
-
-          const v = sampleWave(data, landMask, ll.lat, lng)
-          if (v < 0) continue
-
-          heightCells[r * cellCols + c] = v
-        }
-      }
-    }
-
-    function isOceanPx(px, py) {
+    function isOcean(px, py) {
       if (px < 0 || px >= W || py < 0 || py >= H) return false
       const ll = map.containerPointToLatLng([px, py])
-      return isOceanAtLatLng(ll.lat, ll.lng)
+      const lat = ll.lat
+      let lng = ll.lng
+      if (lng < -180 || lng > 180) return false
+      if (lat > 85 || lat < -85) return false
+      const lon = ((lng % 360) + 360) % 360
+      const col = Math.floor(lon)
+      const row = Math.floor(90 - lat)
+      if (row < 0 || row > 180 || col < 0 || col >= 360) return false
+      if (landMask && landMask[row * 360 + col] === 1) return false
+      return data[row * 360 + col] > 0.05
     }
 
-    function heightAt(px, py) {
-      const c = Math.min(Math.max(Math.floor(px / CELL), 0), cellCols - 1)
-      const r = Math.min(Math.max(Math.floor(py / CELL), 0), cellRows - 1)
-      return heightCells[r * cellCols + c] || 0.3
+    function getHeight(px, py) {
+      const ll = map.containerPointToLatLng([px, py])
+      const lon = ((ll.lng % 360) + 360) % 360
+      const col = Math.floor(lon)
+      const row = Math.floor(90 - ll.lat)
+      if (row < 0 || row > 180 || col < 0 || col >= 360) return 0.5
+      return data[row * 360 + col] || 0.5
     }
 
     function curl(x, y, t) {
-      const s = 0.0028
-      const e = 1.0
-      const pot = (px, py) =>
-        Math.sin(px * s + t) * Math.cos(py * s * 0.8) +
-        Math.sin(px * s * 0.5 - py * s * 0.866 + t * 0.7) * 0.55 +
-        Math.cos(px * s * 0.85 + py * s * 0.5 + t * 0.4) * 0.35
+      const e = 1.5
+
+      const nx = (x / W) * 10
+      const ny = (y / H) * 10
+
+      const f = (px, py) =>
+        Math.sin(px * 0.8 + t * 0.6) * Math.cos(py * 0.6) * 1.2 +
+        Math.sin(px * 1.8 - py * 1.4 + t * 0.5) * 0.8 +
+        Math.cos(px * 2.2 + py * 0.9 + t * 0.4) * 0.6 +
+        Math.sin(px * 3.5 - py * 2.1 + t * 0.3) * 0.3 +
+        Math.cos(px * 1.2 + py * 3.3 - t * 0.2) * 0.25
+
+      const ne = (e / W) * 10
       return {
-        vx: -(pot(x, y + e) - pot(x, y - e)) / (2 * e),
-        vy: (pot(x + e, y) - pot(x - e, y)) / (2 * e),
+        vx: -(f(nx, ny + ne) - f(nx, ny - ne)) / (2 * ne),
+        vy: (f(nx + ne, ny) - f(nx - ne, ny)) / (2 * ne),
       }
     }
 
+    function particleColor(h, alpha) {
+      const stops = [
+        [0, [120, 170, 220]],
+        [1.5, [80, 200, 200]],
+        [3.0, [100, 220, 140]],
+        [5.0, [220, 200, 80]],
+        [7.0, [220, 120, 180]],
+        [10, [200, 80, 220]],
+      ]
+      let c = stops[0][1]
+      for (let i = 1; i < stops.length; i++) {
+        if (h <= stops[i][0]) {
+          const t = (h - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0])
+          const a = stops[i - 1][1]
+          const b = stops[i][1]
+          c = [
+            Math.round(a[0] + (b[0] - a[0]) * t),
+            Math.round(a[1] + (b[1] - a[1]) * t),
+            Math.round(a[2] + (b[2] - a[2]) * t),
+          ]
+          break
+        }
+        c = stops[i][1]
+      }
+      return `rgba(${c[0]},${c[1]},${c[2]},${alpha.toFixed(2)})`
+    }
+
     function spawn() {
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 80; i++) {
         const x = Math.random() * W
         const y = Math.random() * H
-        if (isOceanPx(x, y)) {
+        if (isOcean(x, y)) {
           const c = curl(x, y, 0)
+          const mag = Math.sqrt(c.vx * c.vx + c.vy * c.vy) || 1
           return {
             x,
             y,
-            vx: c.vx * SPEED,
-            vy: c.vy * SPEED,
-            age: Math.floor(Math.random() * MAX_AGE),
+            vx: (c.vx / mag) * 3,
+            vy: (c.vy / mag) * 3,
+            age: Math.floor(Math.random() * 50),
           }
         }
       }
       return null
     }
 
+    const NUM = 1800
+    const MAX_AGE = 40
+    const FADE = 0.07
+    const LINE_W = 2.0
+    const SPEED_SCALE = 0.3
+
     let particles = []
-    function initParticles() {
+    function init() {
       particles = []
-      for (let i = 0; i < NUM_PARTICLES; i++) {
+      for (let i = 0; i < NUM; i++) {
         const p = spawn()
         if (p) particles.push(p)
       }
     }
-
-    buildGrids()
-    initParticles()
+    init()
 
     let frame = 0
-    let lastTime = performance.now()
-    let fpsFrameCount = 0
-    const fpsDisplay = document.createElement('div')
-    fpsDisplay.style.cssText =
-      'position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.7);color:#0f0;padding:6px 10px;font-family:monospace;font-size:14px;z-index:9999;border-radius:4px;'
-    document.body.appendChild(fpsDisplay)
-
     function animate() {
       rafRef.current = requestAnimationFrame(animate)
       frame++
-      fpsFrameCount++
-      const now = performance.now()
-      if (now - lastTime >= 1000) {
-        fpsDisplay.textContent = `FPS: ${fpsFrameCount} | Particles: ${particles.length}`
-        fpsFrameCount = 0
-        lastTime = now
-      }
-      const t = frame * 0.0035
+      const t = frame * 0.004
 
       ctx.globalCompositeOperation = 'destination-out'
       ctx.fillStyle = `rgba(0,0,0,${FADE})`
@@ -159,29 +143,34 @@ export default function WaveParticles({ waveData }) {
 
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i]
+
         const c = curl(p.x, p.y, t)
-        p.vx = p.vx * 0.85 + c.vx * SPEED * 0.15
-        p.vy = p.vy * 0.85 + c.vy * SPEED * 0.15
+        const mag = Math.sqrt(c.vx * c.vx + c.vy * c.vy) || 1
+        const speed = (1.5 + getHeight(p.x, p.y) * 0.3) * SPEED_SCALE
+        const tvx = (c.vx / mag) * speed
+        const tvy = (c.vy / mag) * speed
+
+        p.vx = p.vx * 0.60 + tvx * 0.40
+        p.vy = p.vy * 0.60 + tvy * 0.40
 
         const nx = p.x + p.vx
         const ny = p.y + p.vy
         p.age++
 
-        if (!isOceanPx(nx, ny) || p.age > MAX_AGE) {
+        if (!isOcean(nx, ny) || p.age > MAX_AGE) {
           const np = spawn()
           if (np) particles[i] = np
           continue
         }
 
-        const h = heightAt(p.x, p.y)
         const life = Math.sin((p.age / MAX_AGE) * Math.PI)
-        const [r, g, b] = waveColor(h)
+        const h = getHeight(p.x, p.y)
 
         ctx.beginPath()
         ctx.moveTo(p.x, p.y)
         ctx.lineTo(nx, ny)
-        ctx.strokeStyle = `rgba(${r},${g},${b},${(life * 0.95).toFixed(2)})`
-        ctx.lineWidth = LINE_WIDTH
+        ctx.strokeStyle = particleColor(h, life * 0.35)
+        ctx.lineWidth = LINE_W
         ctx.lineCap = 'round'
         ctx.stroke()
 
@@ -201,9 +190,8 @@ export default function WaveParticles({ waveData }) {
       H = container.offsetHeight
       canvas.width = W
       canvas.height = H
-      buildGrids()
-      initParticles()
       frame = 0
+      init()
       rafRef.current = requestAnimationFrame(animate)
     }
 
@@ -213,7 +201,6 @@ export default function WaveParticles({ waveData }) {
 
     return () => {
       cancelAnimationFrame(rafRef.current)
-      fpsDisplay.remove()
       canvas.remove()
       map.off('movestart', onMoveStart)
       map.off('moveend', onMoveEnd)

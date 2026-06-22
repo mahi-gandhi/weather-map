@@ -67,7 +67,7 @@ export default function WaveCanvas({ waveData }) {
 
           const displayV = Math.max(v, 0.15)
           const [r, g, b] = waveColor(displayV)
-          const alpha = Math.min(235, Math.round(140 + displayV * 18))
+          const alpha = Math.min(180, Math.round(100 + displayV * 12))
 
           img.data[i] = r
           img.data[i + 1] = g
