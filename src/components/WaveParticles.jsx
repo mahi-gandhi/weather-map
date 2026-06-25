@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 
-export default function WaveParticles({ waveData }) {
+export default function WaveParticles({ waveData, ecmwfWave }) {
   const map = useMap()
   const rafRef = useRef(null)
 
   useEffect(() => {
-    if (!map || !waveData?.data?.length) return
-    const data = waveData.data
-    const landMask = waveData.landMask
+    if (!map || (!ecmwfWave && !waveData?.data?.length)) return
+    const data = waveData?.data
+    const landMask = waveData?.landMask
 
     const container = map.getContainer()
     let W = container.offsetWidth
@@ -39,7 +39,14 @@ export default function WaveParticles({ waveData }) {
       const row = Math.floor(90 - lat)
       if (row < 0 || row > 180 || col < 0 || col >= 360) return false
       if (landMask && landMask[row * 360 + col] === 1) return false
-      return data[row * 360 + col] > 0.05
+      if (ecmwfWave) {
+        const idx = row * 360 + col
+        const U = ecmwfWave[0]?.data?.[idx]
+        const V = ecmwfWave[1]?.data?.[idx]
+        if (U == null || V == null) return false
+        return Math.sqrt(U * U + V * V) > 0.05
+      }
+      return (data?.[row * 360 + col] ?? 0) > 0.05
     }
 
     function getHeight(px, py) {
@@ -48,7 +55,14 @@ export default function WaveParticles({ waveData }) {
       const col = Math.floor(lon)
       const row = Math.floor(90 - ll.lat)
       if (row < 0 || row > 180 || col < 0 || col >= 360) return 0.5
-      return data[row * 360 + col] || 0.5
+      if (ecmwfWave) {
+        const idx = row * 360 + col
+        const U = ecmwfWave[0]?.data?.[idx]
+        const V = ecmwfWave[1]?.data?.[idx]
+        if (U == null || V == null) return 0.5
+        return Math.sqrt(U * U + V * V)
+      }
+      return data?.[row * 360 + col] || 0.5
     }
 
     function curl(x, y, t) {
@@ -68,6 +82,29 @@ export default function WaveParticles({ waveData }) {
       return {
         vx: -(f(nx, ny + ne) - f(nx, ny - ne)) / (2 * ne),
         vy: (f(nx + ne, ny) - f(nx - ne, ny)) / (2 * ne),
+      }
+    }
+
+    function getRealDirection(px, py) {
+      if (!ecmwfWave) return null
+      const ll = map.containerPointToLatLng([px, py])
+      const lat = ll.lat
+      const lon = ((ll.lng % 360) + 360) % 360
+
+      const col = Math.floor(lon) % 360
+      const row = Math.floor(90 - lat)
+      if (row < 0 || row > 180 || col < 0 || col >= 360) return null
+
+      const idx = row * 360 + col
+      const U = ecmwfWave[0]?.data?.[idx]
+      const V = ecmwfWave[1]?.data?.[idx]
+
+      if (U == null || V == null) return null
+      if (!U && !V) return null
+
+      return {
+        vx: U,
+        vy: -V,
       }
     }
 
@@ -147,11 +184,19 @@ export default function WaveParticles({ waveData }) {
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i]
 
-        const c = curl(p.x, p.y, t)
-        const mag = Math.sqrt(c.vx * c.vx + c.vy * c.vy) || 1
-        const speed = (1.5 + getHeight(p.x, p.y) * 0.3) * SPEED_SCALE
-        const tvx = (c.vx / mag) * speed
-        const tvy = (c.vy / mag) * speed
+        const realDir = getRealDirection(p.x, p.y)
+        let tvx
+        let tvy
+
+        if (realDir) {
+          const mag = Math.sqrt(realDir.vx * realDir.vx + realDir.vy * realDir.vy) || 1
+          tvx = (realDir.vx / mag) * SPEED_SCALE * 3
+          tvy = (realDir.vy / mag) * SPEED_SCALE * 3
+        } else {
+          const c = curl(p.x, p.y, t)
+          tvx = c.vx * SPEED_SCALE
+          tvy = c.vy * SPEED_SCALE
+        }
 
         p.vx = p.vx * 0.60 + tvx * 0.40
         p.vy = p.vy * 0.60 + tvy * 0.40
@@ -212,7 +257,7 @@ export default function WaveParticles({ waveData }) {
       map.off('zoomstart', onMoveStart)
       map.off('zoomend', onMoveEnd)
     }
-  }, [map, waveData])
+  }, [ecmwfWave, map, waveData])
 
   return null
 }

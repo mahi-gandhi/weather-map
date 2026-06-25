@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
-import { sampleWave as sampleWaveStatic, waveColor } from '../lib/wave-utils.js'
+import { colorForSpeed } from '../lib/ecmwfColor.js'
 
-export default function WaveCanvas({ waveData, ecmwfWave }) {
+export default function VectorCanvas({ ecmwfLayer, colorScheme, oceanMask }) {
   const map = useMap()
   const canvasRef = useRef(null)
 
   useEffect(() => {
-    if (!map || (!ecmwfWave && !waveData?.data)) return
-    const data = waveData?.data
-    const landMask = waveData?.landMask
+    const uField = ecmwfLayer?.[0]?.data
+    const vField = ecmwfLayer?.[1]?.data
+    if (!map || !uField || !vField) return
 
     const container = map.getContainer()
     container.style.position = 'relative'
@@ -23,6 +23,18 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
     container.appendChild(canvas)
     canvasRef.current = canvas
     const ctx = canvas.getContext('2d')
+
+    function sampleUV(lat, lng) {
+      const lon = ((lng % 360) + 360) % 360
+      const col = Math.floor(lon) % 360
+      const row = Math.floor(90 - lat)
+      if (row < 0 || row > 180 || col < 0 || col >= 360) return null
+      const idx = row * 360 + col
+      const u = uField[idx]
+      const v = vField[idx]
+      if (u == null || v == null) return null
+      return { u, v }
+    }
 
     function draw() {
       const W = container.offsetWidth
@@ -46,47 +58,26 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
       const mctx = maskBuf.getContext('2d')
       const maskImg = mctx.createImageData(rw, rh)
 
-      const bounds = map.getBounds()
-      const west = bounds.getWest()
-      const east = bounds.getEast()
-      console.log('[wave] render loop: rw x rh =', rw, rh, 'SCALE:', SCALE)
-      console.log('[wave] bounds west/east:', west, east)
-
-      function sampleWave(lat, lng) {
-        if (ecmwfWave) {
-          const lon = ((lng % 360) + 360) % 360
-          const col = Math.floor(lon) % 360
-          const row = Math.floor(90 - lat)
-          if (row < 0 || row > 180 || col < 0 || col >= 360) return -1
-          const idx = row * 360 + col
-          const U = ecmwfWave[0]?.data?.[idx]
-          const V = ecmwfWave[1]?.data?.[idx]
-          if (U == null || V == null) return -1
-          const speed = Math.sqrt(U * U + V * V)
-          return speed < 0.05 ? -1 : speed
-        }
-        return sampleWaveStatic(data, landMask, lat, lng)
-      }
-
       for (let px = 0; px < rw; px++) {
         for (let py = 0; py < rh; py++) {
           const realX = px / SCALE
           const realY = py / SCALE
           const ll = map.containerPointToLatLng([realX, realY])
+          if (oceanMask) {
+            const lon = ((ll.lng % 360) + 360) % 360
+            const col = Math.floor(lon)
+            const row = Math.floor(90 - ll.lat)
+            if (row >= 0 && row <= 180 && col >= 0 && col < 360) {
+              if (oceanMask[row * 360 + col] === 1) continue
+            }
+          }
+          const uv = sampleUV(ll.lat, ll.lng)
+          if (!uv) continue
 
-          let lng = ll.lng
-          while (lng < west) lng += 360
-          while (lng > west + 360) lng -= 360
-          if (lng > east + 1) continue
-
-          const v = sampleWave(ll.lat, lng)
+          const speed = Math.sqrt(uv.u * uv.u + uv.v * uv.v)
+          const [r, g, b] = colorForSpeed(speed, colorScheme)
+          const alpha = Math.min(185, Math.round(95 + speed * 10))
           const i = (py * rw + px) * 4
-          if (v < 0) continue
-
-          const displayV = Math.max(v, 0.15)
-          const [r, g, b] = waveColor(displayV)
-          const alpha = Math.min(180, Math.round(100 + displayV * 12))
-
           img.data[i] = r
           img.data[i + 1] = g
           img.data[i + 2] = b
@@ -106,14 +97,14 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
       blurred.width = rw
       blurred.height = rh
       const bctx = blurred.getContext('2d')
-      bctx.filter = 'blur(2.5px)'
+      bctx.filter = 'blur(2.2px)'
       bctx.drawImage(colorBuf, 0, 0)
 
       const finalMask = document.createElement('canvas')
       finalMask.width = rw
       finalMask.height = rh
       const fmctx = finalMask.getContext('2d')
-      fmctx.filter = 'blur(1.5px)'
+      fmctx.filter = 'blur(1.4px)'
       fmctx.drawImage(maskBuf, 0, 0)
 
       const composited = document.createElement('canvas')
@@ -150,7 +141,7 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
       map.off('resize', draw)
       canvas.remove()
     }
-  }, [ecmwfWave, map, waveData])
+  }, [colorScheme, ecmwfLayer, map, oceanMask])
 
   return null
 }

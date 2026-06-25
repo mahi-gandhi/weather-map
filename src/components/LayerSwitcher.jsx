@@ -1,8 +1,11 @@
 import '../styles/maritime.css'
 
 const LAYERS = [
-  { id: 'wave_height', icon: '🌊', label: 'Waves' },
-  { id: 'temperature', icon: '🌡', label: 'Temp' },
+  { id: 'wave', label: 'Waves' },
+  { id: 'wind', label: 'Wind' },
+  { id: 'swell', label: 'Swell' },
+  { id: 'wavcomb', label: 'Combined' },
+  { id: 'pressur', label: 'Pressure' },
 ]
 
 export default function LayerSwitcher({
@@ -17,17 +20,16 @@ export default function LayerSwitcher({
       aria-label="Map layers"
     >
       <div className="layer-strip__pills">
-        {LAYERS.map(({ id, icon, label }) => {
+        {LAYERS.map(({ id, label }) => {
           const isActive = activeLayer === id
           return (
             <button
               key={id}
               type="button"
-              className={`layer-pill${isActive ? ' layer-pill--active' : ''}`}
+              className={`layer-btn layer-pill${isActive ? ' active layer-pill--active' : ''}`}
               data-layer={id}
               onClick={() => onLayerChange(id)}
             >
-              <span className="layer-pill__icon">{icon}</span>
               <span className="layer-pill__label">{label}</span>
             </button>
           )
