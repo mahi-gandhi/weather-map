@@ -11,28 +11,28 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
     const data = waveData?.data
     const landMask = waveData?.landMask
 
-    const container = map.getContainer()
-    container.style.position = 'relative'
+    const parent = map.getContainer()
+    parent.style.position = 'relative'
 
     const canvas = document.createElement('canvas')
+    canvas.setAttribute('data-weather-canvas', 'true')
     canvas.style.position = 'absolute'
     canvas.style.top = '0'
     canvas.style.left = '0'
     canvas.style.pointerEvents = 'none'
     canvas.style.zIndex = '400'
-    container.appendChild(canvas)
+    parent.appendChild(canvas)
     canvasRef.current = canvas
     const ctx = canvas.getContext('2d')
 
     function draw() {
-      const W = container.offsetWidth
-      const H = container.offsetHeight
+      const W = parent.offsetWidth
+      const H = parent.offsetHeight
       canvas.width = W
       canvas.height = H
 
-      const SCALE = 0.6
-      const rw = Math.ceil(W * SCALE)
-      const rh = Math.ceil(H * SCALE)
+      const rw = W
+      const rh = H
 
       const colorBuf = document.createElement('canvas')
       colorBuf.width = rw
@@ -49,8 +49,6 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
       const bounds = map.getBounds()
       const west = bounds.getWest()
       const east = bounds.getEast()
-      console.log('[wave] render loop: rw x rh =', rw, rh, 'SCALE:', SCALE)
-      console.log('[wave] bounds west/east:', west, east)
 
       function sampleWave(lat, lng) {
         if (ecmwfWave) {
@@ -70,9 +68,7 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
 
       for (let px = 0; px < rw; px++) {
         for (let py = 0; py < rh; py++) {
-          const realX = px / SCALE
-          const realY = py / SCALE
-          const ll = map.containerPointToLatLng([realX, realY])
+          const ll = map.containerPointToLatLng([px, py])
 
           let lng = ll.lng
           while (lng < west) lng += 360
@@ -106,7 +102,7 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
       blurred.width = rw
       blurred.height = rh
       const bctx = blurred.getContext('2d')
-      bctx.filter = 'blur(2.5px)'
+      bctx.filter = 'blur(5px)'
       bctx.drawImage(colorBuf, 0, 0)
 
       const finalMask = document.createElement('canvas')
@@ -125,9 +121,7 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
       compCtx.drawImage(finalMask, 0, 0)
 
       ctx.clearRect(0, 0, W, H)
-      ctx.imageSmoothingEnabled = true
-      ctx.imageSmoothingQuality = 'high'
-      ctx.drawImage(composited, 0, 0, rw, rh, 0, 0, W, H)
+      ctx.drawImage(composited, 0, 0)
     }
 
     function onMoveStart() {
@@ -143,12 +137,14 @@ export default function WaveCanvas({ waveData, ecmwfWave }) {
     map.on('resize', draw)
 
     return () => {
+      try {
+        canvas.remove()
+      } catch (e) {}
       map.off('movestart', onMoveStart)
       map.off('zoomstart', onMoveStart)
       map.off('moveend', draw)
       map.off('zoomend', draw)
       map.off('resize', draw)
-      canvas.remove()
     }
   }, [ecmwfWave, map, waveData])
 

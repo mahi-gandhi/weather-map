@@ -65,6 +65,18 @@ function getFitWorldZoom(containerWidth) {
   return Math.max(1, Math.ceil(idealZoom))
 }
 
+function cancelAllWeatherAnimFrames() {
+  if (window.__weatherAnimFrames) {
+    window.__weatherAnimFrames.forEach((id) => cancelAnimationFrame(id))
+    window.__weatherAnimFrames = []
+  }
+}
+
+function removeAllWeatherCanvases(container) {
+  if (!container) return
+  container.querySelectorAll('[data-weather-canvas]').forEach((c) => c.remove())
+}
+
 export default function WeatherMap() {
   const timelineSteps = useMemo(() => buildTimelineSteps(), [])
   const currentTimeIndex = useMemo(
@@ -171,8 +183,13 @@ export default function WeatherMap() {
     isFetchingRef.current = {}
   }, [])
 
-  const handleLayerChange = useCallback((layerId) => {
-    setActiveLayer(layerId)
+  const handleLayerSwitch = useCallback((newLayer) => {
+    cancelAllWeatherAnimFrames()
+    const container =
+      mapRef.current?.getContainer() ??
+      document.querySelector('.leaflet-container')
+    removeAllWeatherCanvases(container)
+    setActiveLayer(newLayer)
   }, [])
 
   const handleTimeIndexChange = useCallback((index) => {
@@ -291,7 +308,7 @@ export default function WeatherMap() {
           <LoadingBar label={loading ? loadingLabel : ''} />
           <LayerSwitcher
             activeLayer={activeLayer}
-            onLayerChange={handleLayerChange}
+            onLayerChange={handleLayerSwitch}
             tilesLoading={tilesLoading}
           />
           <TimelineScrubber

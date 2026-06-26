@@ -11,16 +11,17 @@ export default function VectorCanvas({ ecmwfLayer, colorScheme, oceanMask }) {
     const vField = ecmwfLayer?.[1]?.data
     if (!map || !uField || !vField) return
 
-    const container = map.getContainer()
-    container.style.position = 'relative'
+    const parent = map.getContainer()
+    parent.style.position = 'relative'
 
     const canvas = document.createElement('canvas')
+    canvas.setAttribute('data-weather-canvas', 'true')
     canvas.style.position = 'absolute'
     canvas.style.top = '0'
     canvas.style.left = '0'
     canvas.style.pointerEvents = 'none'
     canvas.style.zIndex = '400'
-    container.appendChild(canvas)
+    parent.appendChild(canvas)
     canvasRef.current = canvas
     const ctx = canvas.getContext('2d')
 
@@ -37,8 +38,8 @@ export default function VectorCanvas({ ecmwfLayer, colorScheme, oceanMask }) {
     }
 
     function draw() {
-      const W = container.offsetWidth
-      const H = container.offsetHeight
+      const W = parent.offsetWidth
+      const H = parent.offsetHeight
       canvas.width = W
       canvas.height = H
 
@@ -134,12 +135,14 @@ export default function VectorCanvas({ ecmwfLayer, colorScheme, oceanMask }) {
     map.on('resize', draw)
 
     return () => {
+      try {
+        canvas.remove()
+      } catch (e) {}
       map.off('movestart', onMoveStart)
       map.off('zoomstart', onMoveStart)
       map.off('moveend', draw)
       map.off('zoomend', draw)
       map.off('resize', draw)
-      canvas.remove()
     }
   }, [colorScheme, ecmwfLayer, map, oceanMask])
 

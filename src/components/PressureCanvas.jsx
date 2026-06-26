@@ -58,6 +58,7 @@ export default function PressureCanvas({ ecmwfPressure }) {
     container.style.position = 'relative'
 
     const canvas = document.createElement('canvas')
+    canvas.setAttribute('data-weather-canvas', 'true')
     canvas.style.position = 'absolute'
     canvas.style.top = '0'
     canvas.style.left = '0'
@@ -147,10 +148,12 @@ export default function PressureCanvas({ ecmwfPressure }) {
     map.on('resize', draw)
 
     return () => {
+      try {
+        canvas.remove()
+      } catch (e) {}
       map.off('moveend', draw)
       map.off('zoomend', draw)
       map.off('resize', draw)
-      canvas.remove()
     }
   }, [ecmwfPressure, map])
 

@@ -10,13 +10,14 @@ export default function WaveParticles({ waveData, ecmwfWave }) {
     const data = waveData?.data
     const landMask = waveData?.landMask
 
-    const container = map.getContainer()
-    let W = container.offsetWidth
-    let H = container.offsetHeight
+    const parent = map.getContainer()
+    let W = parent.offsetWidth
+    let H = parent.offsetHeight
 
-    container.style.position = 'relative'
+    parent.style.position = 'relative'
 
     const canvas = document.createElement('canvas')
+    canvas.setAttribute('data-weather-canvas', 'true')
     canvas.width = W
     canvas.height = H
     canvas.style.position = 'absolute'
@@ -24,29 +25,28 @@ export default function WaveParticles({ waveData, ecmwfWave }) {
     canvas.style.left = '0'
     canvas.style.pointerEvents = 'none'
     canvas.style.zIndex = '450'
-    container.appendChild(canvas)
+    parent.appendChild(canvas)
     const ctx = canvas.getContext('2d')
 
     function isOcean(px, py) {
       if (px < 0 || px >= W || py < 0 || py >= H) return false
       const ll = map.containerPointToLatLng([px, py])
       const lat = ll.lat
-      let lng = ll.lng
-      if (lng < -180 || lng > 180) return false
+      const lng = ll.lng
       if (lat > 85 || lat < -85) return false
       const lon = ((lng % 360) + 360) % 360
       const col = Math.floor(lon)
       const row = Math.floor(90 - lat)
       if (row < 0 || row > 180 || col < 0 || col >= 360) return false
-      if (landMask && landMask[row * 360 + col] === 1) return false
+      const idx = row * 360 + col
+
+      if (landMask && landMask[idx] === 0) return true
       if (ecmwfWave) {
-        const idx = row * 360 + col
-        const U = ecmwfWave[0]?.data?.[idx]
-        const V = ecmwfWave[1]?.data?.[idx]
-        if (U == null || V == null) return false
-        return Math.sqrt(U * U + V * V) > 0.05
+        const U = ecmwfWave[0].data[idx]
+        const V = ecmwfWave[1].data[idx]
+        return Math.sqrt(U * U + V * V) > 0.01
       }
-      return (data?.[row * 360 + col] ?? 0) > 0.05
+      return (data?.[idx] || 0) > 0.05
     }
 
     function getHeight(px, py) {
@@ -55,14 +55,14 @@ export default function WaveParticles({ waveData, ecmwfWave }) {
       const col = Math.floor(lon)
       const row = Math.floor(90 - ll.lat)
       if (row < 0 || row > 180 || col < 0 || col >= 360) return 0.5
+      const idx = row * 360 + col
       if (ecmwfWave) {
-        const idx = row * 360 + col
         const U = ecmwfWave[0]?.data?.[idx]
         const V = ecmwfWave[1]?.data?.[idx]
         if (U == null || V == null) return 0.5
         return Math.sqrt(U * U + V * V)
       }
-      return data?.[row * 360 + col] || 0.5
+      return data?.[idx] || 0.5
     }
 
     function curl(x, y, t) {
@@ -88,11 +88,9 @@ export default function WaveParticles({ waveData, ecmwfWave }) {
     function getRealDirection(px, py) {
       if (!ecmwfWave) return null
       const ll = map.containerPointToLatLng([px, py])
-      const lat = ll.lat
       const lon = ((ll.lng % 360) + 360) % 360
-
-      const col = Math.floor(lon) % 360
-      const row = Math.floor(90 - lat)
+      const col = Math.floor(lon)
+      const row = Math.floor(90 - ll.lat)
       if (row < 0 || row > 180 || col < 0 || col >= 360) return null
 
       const idx = row * 360 + col
@@ -136,7 +134,7 @@ export default function WaveParticles({ waveData, ecmwfWave }) {
     }
 
     function spawn() {
-      for (let i = 0; i < 80; i++) {
+      for (let i = 0; i < 200; i++) {
         const x = Math.random() * W
         const y = Math.random() * H
         if (isOcean(x, y)) {
@@ -170,9 +168,21 @@ export default function WaveParticles({ waveData, ecmwfWave }) {
     }
     init()
 
+    function scheduleNextFrame() {
+      if (!window.__weatherAnimFrames) window.__weatherAnimFrames = []
+      const prev = rafRef.current
+      const id = requestAnimationFrame(animate)
+      if (prev != null) {
+        const i = window.__weatherAnimFrames.indexOf(prev)
+        if (i >= 0) window.__weatherAnimFrames.splice(i, 1)
+      }
+      window.__weatherAnimFrames.push(id)
+      rafRef.current = id
+    }
+
     let frame = 0
     function animate() {
-      rafRef.current = requestAnimationFrame(animate)
+      scheduleNextFrame()
       frame++
       const t = frame * 0.004
 
@@ -227,7 +237,7 @@ export default function WaveParticles({ waveData, ecmwfWave }) {
       }
     }
 
-    rafRef.current = requestAnimationFrame(animate)
+    scheduleNextFrame()
 
     function onMoveStart() {
       cancelAnimationFrame(rafRef.current)
@@ -235,13 +245,13 @@ export default function WaveParticles({ waveData, ecmwfWave }) {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
     }
     function onMoveEnd() {
-      W = container.offsetWidth
-      H = container.offsetHeight
+      W = parent.offsetWidth
+      H = parent.offsetHeight
       canvas.width = W
       canvas.height = H
       frame = 0
       init()
-      rafRef.current = requestAnimationFrame(animate)
+      scheduleNextFrame()
     }
 
     map.on('movestart', onMoveStart)
@@ -251,7 +261,13 @@ export default function WaveParticles({ waveData, ecmwfWave }) {
 
     return () => {
       cancelAnimationFrame(rafRef.current)
-      canvas.remove()
+      if (window.__weatherAnimFrames && rafRef.current != null) {
+        const i = window.__weatherAnimFrames.indexOf(rafRef.current)
+        if (i >= 0) window.__weatherAnimFrames.splice(i, 1)
+      }
+      try {
+        canvas.remove()
+      } catch (e) {}
       map.off('movestart', onMoveStart)
       map.off('moveend', onMoveEnd)
       map.off('zoomstart', onMoveStart)
